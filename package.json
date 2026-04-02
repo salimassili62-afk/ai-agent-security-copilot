@@ -1,0 +1,13 @@
+{
+  "name": "ai-agent-security-copilot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Single-file security copilot with backend Claude proxy",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
