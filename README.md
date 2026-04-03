@@ -47,3 +47,6 @@ Health check: `GET /api/health` returns JSON with `ok`, `version`, and `requestI
 - Save scan history in database
 - Add Stripe pricing page
 - Add API endpoint for team integrations
+## Demo
+
+![Scan Result](screenshots/scan-result.png)
