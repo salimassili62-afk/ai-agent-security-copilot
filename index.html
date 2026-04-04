@@ -1115,8 +1115,16 @@ Schema:
         providerLine.style.display = "block";
         const rid = requestId ? ` · Request ${requestId}` : "";
         const cmp = compareMode ? " · Compare mode" : "";
-        providerLine.textContent = `Engine: ${provLabel}${model ? ` · ${model}` : ""}${cmp} · v${version}${rid} · ${scanDuration}s`;
+        providerLine.textContent = `Engine: ${provLabel}${model ? ` · ${model}` : ""}${cmp} · v${version}${rid} · ${scanDuration}s${data.fallback ? ' · FALLBACK MODE' : ''}${data.heuristicOnly ? ' · HEURISTIC ONLY' : ''}`;
         if (scanTimeEl) scanTimeEl.textContent = `Last scan: ${scanDuration}s`;
+        
+        // Visual indicator for fallback/heuristic mode
+        if (data.fallback || data.heuristicOnly) {
+          riskBadge.style.border = "2px dashed var(--warn)";
+          scoreReason.textContent += " (Using deterministic rules - AI unavailable)";
+        } else {
+          riskBadge.style.border = "";
+        }
         
         // Show share button after successful scan
         document.getElementById("shareBtn").style.display = 'inline-block';

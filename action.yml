@@ -1,0 +1,107 @@
+name: 'AI Security Copilot Scan'
+description: 'Scan prompts and agents for security risks in CI/CD'
+author: 'AI Security Copilot'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  path:
+    description: 'Path to file or directory to scan'
+    required: true
+  fail-on:
+    description: 'Fail if risk level is >= this (low/medium/high)'
+    required: false
+    default: 'high'
+  compare-baseline:
+    description: 'Path to baseline file for regression testing'
+    required: false
+  output-format:
+    description: 'Output format (summary/json/markdown)'
+    required: false
+    default: 'summary'
+  api-url:
+    description: 'API endpoint URL'
+    required: false
+    default: 'https://ai-security-copilot.vercel.app'
+
+outputs:
+  score:
+    description: 'Risk score (0-100)'
+  label:
+    description: 'Risk label (LOW/MEDIUM/HIGH)'
+  findings:
+    description: 'Number of security findings'
+  passed:
+    description: 'Whether the scan passed (true/false)'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    
+    - name: Run Security Scan
+      shell: bash
+      run: |
+        # Install the CLI
+        npm install -g ai-security-copilot
+        
+        # Set API URL
+        export AI_SECURITY_API="${{ inputs.api-url }}"
+        
+        # Run scan
+        if [ -n "${{ inputs.compare-baseline }}" ]; then
+          echo "Running regression test..."
+          ai-security-scan --compare "${{ inputs.compare-baseline }}" "${{ inputs.path }}" -o "${{ inputs.output-format }}" --fail-on "${{ inputs.fail-on }}"
+        else
+          echo "Running security scan..."
+          ai-security-scan "${{ inputs.path }}" -o "${{ inputs.output-format }}" --fail-on "${{ inputs.fail-on }}"
+        fi
+      
+    - name: Parse Results
+      id: parse
+      shell: bash
+      run: |
+        # Parse JSON output for GitHub Actions
+        if [ -f scan-result.json ]; then
+          SCORE=$(jq -r '.parsed.score' scan-result.json)
+          LABEL=$(jq -r '.parsed.label' scan-result.json)
+          FINDINGS=$(jq -r '.parsed.reasons | length' scan-result.json)
+          
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          echo "label=$LABEL" >> $GITHUB_OUTPUT
+          echo "findings=$FINDINGS" >> $GITHUB_OUTPUT
+          
+          # Determine if passed
+          if [ "$LABEL" = "HIGH" ] && [ "${{ inputs.fail-on }}" != "none" ]; then
+            echo "passed=false" >> $GITHUB_OUTPUT
+          else
+            echo "passed=true" >> $GITHUB_OUTPUT
+          fi
+        fi
+
+    - name: Comment PR
+      if: github.event_name == 'pull_request' && failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const score = '${{ steps.parse.outputs.score }}';
+          const label = '${{ steps.parse.outputs.label }}';
+          const findings = '${{ steps.parse.outputs.findings }}';
+          
+          const body = `⚠️ **Security Scan Failed**
+          
+          Risk Score: ${score}/100 (${label})
+          Findings: ${findings}
+          
+          Please review the security issues before merging.`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: body
+          });
