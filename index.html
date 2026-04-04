@@ -287,7 +287,7 @@
     <div class="card">
       <label>Trust &amp; privacy</label>
       <p class="small trust">Analysis is <strong>AI-assisted opinion</strong>, not a certification or legal guarantee. Do not paste live production secrets; use redacted or staging samples when possible. Text is sent to <strong>your</strong> backend (Ollama locally or Claude if configured).</p>
-      <p class="footer" id="buildMeta">AI Agent Security Copilot v1.1.0</p>
+      <p class="footer" id="buildMeta">AI Agent Security Copilot v2.0.0 · <span style="color:var(--primary)">Powered by Groq AI</span> · <span id="scanTime"></span></p>
     </div>
   </div>
 
@@ -309,7 +309,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
-    const APP_VERSION = "1.1.0";
+    const APP_VERSION = "2.0.0";
     const CLAUDE_MODEL = "claude-sonnet-4-20250514";
     const SECURITY_SYSTEM_PROMPT = `You are an AI security analyst for teams shipping LLM products and autonomous agents.
 
@@ -375,6 +375,8 @@ Schema:
     const MAX_INPUT_CHARS = 200000;
     let lastScanBundle = null;
     let toastTimer = null;
+    const scanTimeEl = document.getElementById("scanTime");
+    let scanStartTime = null;
 
     if (buildMeta) buildMeta.textContent = `AI Agent Security Copilot v${APP_VERSION}`;
 
@@ -852,7 +854,10 @@ Schema:
     scanBtn.addEventListener("click", async () => {
       const raw = inputText.value;
       const content = raw.trim();
-      if (!content) return;
+      if (!content) {
+        scoreReason.textContent = "Please paste some content to scan first.";
+        return;
+      }
       if (content.length > MAX_INPUT_CHARS) {
         scoreReason.textContent = `Paste is too long (${content.length} chars). Trim below ${MAX_INPUT_CHARS} or split into chunks.`;
         return;
@@ -861,7 +866,8 @@ Schema:
       const baseline = compareToggle.checked ? baselineText.value.trim() : "";
 
       setScanLoading(true);
-      scoreReason.textContent = "Running security analysis…";
+      scanStartTime = Date.now();
+      scoreReason.textContent = "Analyzing with Groq AI... (usually 2-5 seconds)";
       renderHeuristicSignals(content);
 
       try {
@@ -885,10 +891,12 @@ Schema:
             ? "Proceed carefully. Add guardrails and approval checks."
             : "No strong risk signals found, still keep baseline controls.";
         const provLabel = provider === "ollama" ? "Local (Ollama)" : provider === "anthropic" ? "Anthropic Claude" : provider;
+        const scanDuration = ((Date.now() - scanStartTime) / 1000).toFixed(1);
         providerLine.style.display = "block";
         const rid = requestId ? ` · Request ${requestId}` : "";
         const cmp = compareMode ? " · Compare mode" : "";
-        providerLine.textContent = `Engine: ${provLabel}${model ? ` · ${model}` : ""}${cmp} · v${version}${rid}`;
+        providerLine.textContent = `Engine: ${provLabel}${model ? ` · ${model}` : ""}${cmp} · v${version}${rid} · ${scanDuration}s`;
+        if (scanTimeEl) scanTimeEl.textContent = `Last scan: ${scanDuration}s`;
         if (result.summary) {
           execSummary.style.display = "block";
           execSummary.textContent = result.summary;
@@ -921,10 +929,24 @@ Schema:
         });
         loadHistory();
       } catch (err) {
+        const scanDuration = scanStartTime ? ((Date.now() - scanStartTime) / 1000).toFixed(1) : "0";
         const message = err instanceof Error ? err.message : "Unknown scan error.";
+        let userMessage = message;
+        
+        // Human-readable error messages
+        if (message.includes("GROQ_API_KEY")) {
+          userMessage = "API key not configured. Please add GROQ_API_KEY to environment variables and redeploy.";
+        } else if (message.includes("429") || message.includes("Too many")) {
+          userMessage = "Rate limit reached. Maximum 60 scans per 15 minutes. Please wait a few minutes.";
+        } else if (message.includes("500") || message.includes("502") || message.includes("503")) {
+          userMessage = "Server error. The Groq API may be temporarily unavailable. Please try again in a moment.";
+        } else if (message.includes("network") || message.includes("fetch") || message.includes("Failed")) {
+          userMessage = "Network error. Check your internet connection and try again.";
+        }
+        
         riskBadge.className = "pill risk-med";
         riskBadge.textContent = "SCAN ERROR";
-        scoreReason.textContent = `Scan failed: ${message}`;
+        scoreReason.textContent = `Scan failed (${scanDuration}s): ${userMessage}`;
         resetTriageUi();
         renderHeuristicSignals(content);
         owaspRow.textContent = "";
@@ -935,9 +957,9 @@ Schema:
         lastScanBundle = null;
         renderList(reasonsList, ["Unable to complete analysis (backend or model error)."], "No scan results.");
         renderList(fixesList, [
-          "If local: run Ollama and `ollama pull llama3.1`, then retry.",
-          "If cloud: set ANTHROPIC_API_KEY on the server and redeploy.",
-          "Check terminal/network — `/api/scan` must be reachable (open via dev server, not raw file)."
+          "Check that GROQ_API_KEY is set in Vercel environment variables.",
+          "If the error persists, the Groq API may be down - try again in a few minutes.",
+          "Make sure you're scanning text under 200,000 characters."
         ], "No fix suggestions.");
         renderList(redTeamList, [], "No follow-up probes.");
       } finally {
