@@ -124,33 +124,86 @@ function getCacheKey(content, scanContext, compareBaseline) {
 // ============================================
 
 const INJECTION_PATTERNS = [
-  { pattern: /ignore\s+(?:previous|all|the)\s+(?:instruction|rule|prompt)/i, name: "Instruction override", severity: "HIGH", category: "LLM01" },
-  { pattern: /disregard\s+(?:previous|all|the)/i, name: "Disregard pattern", severity: "HIGH", category: "LLM01" },
-  { pattern: /forget\s+(?:everything|your|previous)/i, name: "Forget instruction", severity: "HIGH", category: "LLM01" },
+  { pattern: /ignore\s+(?:previous|all|the)\s+(?:instruction|rule|prompt)/i, name: "Instruction override", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /disregard\s+(?:previous|all|the)\s+(?:instruction|rule|prompt)/i, name: "Disregard instructions", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /forget\s+(?:everything|your|previous|all)\s+(?:instruction|rule|prompt)/i, name: "Forget instructions", severity: "CRITICAL", category: "LLM01" },
   { pattern: /system\s*:\s*/i, name: "System prompt injection", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /developer\s*:\s*/i, name: "Developer role injection", severity: "CRITICAL", category: "LLM01" },
   { pattern: /\[\s*system\s*\]|\(\s*system\s*\)/i, name: "System tag injection", severity: "HIGH", category: "LLM01" },
+  { pattern: /you are now\s+\w+|you are\s+\w+\s+mode/i, name: "Role assignment", severity: "HIGH", category: "LLM01" },
+  { pattern: /DAN|do anything now/i, name: "Jailbreak pattern (DAN)", severity: "HIGH", category: "LLM01" },
+  { pattern: /jailbreak|bypass|circumvent/i, name: "Jailbreak attempt", severity: "HIGH", category: "LLM01" },
 ];
 
 const SECRET_PATTERNS = [
-  { pattern: /api[_-]?key\s*[:=\s]+["']?[a-zA-Z0-9_\-]{20,}/i, name: "API key leak", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /sk-[a-zA-Z0-9]{48,}/i, name: "OpenAI API key (sk-)", severity: "CRITICAL", category: "LLM02" },
   { pattern: /sk-[a-zA-Z0-9]{20,}/i, name: "OpenAI key pattern", severity: "CRITICAL", category: "LLM02" },
-  { pattern: /AKIA[0-9A-Z]{16}/, name: "AWS access key", severity: "CRITICAL", category: "LLM02" },
-  { pattern: /private[_-]?key|BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY/, name: "Private key", severity: "CRITICAL", category: "LLM02" },
-  { pattern: /password\s*[:=\s]+[^\s]{8,}/i, name: "Password leak", severity: "HIGH", category: "LLM02" },
+  { pattern: /AKIA[0-9A-Z]{16}/, name: "AWS access key (AKIA)", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /ASIA[0-9A-Z]{16}/, name: "AWS session key (ASIA)", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /BEGIN (RSA|DSA|EC|OPENSSH|PGP) PRIVATE KEY/, name: "Private key block", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /ssh-rsa\s+AAAA[0-9A-Za-z+/]{100,}/, name: "SSH public key", severity: "HIGH", category: "LLM02" },
+  { pattern: /api[_-]?key\s*[:=\s]+["']?[a-zA-Z0-9_\-]{16,}/i, name: "API key assignment", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /api[_-]?secret\s*[:=\s]+["']?[a-zA-Z0-9_\-]{16,}/i, name: "API secret", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /password\s*[:=\s]+["']?[^\s"']{8,}/i, name: "Hardcoded password", severity: "HIGH", category: "LLM02" },
+  { pattern: /passwd\s*[:=\s]+["']?[^\s"']{8,}/i, name: "Password variant", severity: "HIGH", category: "LLM02" },
   { pattern: /token\s*[:=\s]+["']?[a-zA-Z0-9_\-]{20,}/i, name: "Token leak", severity: "HIGH", category: "LLM02" },
+  { pattern: /auth[_-]?token\s*[:=\s]+["']?[a-zA-Z0-9_\-]{10,}/i, name: "Auth token", severity: "HIGH", category: "LLM02" },
+  { pattern: /bearer\s+[a-zA-Z0-9_\-]{20,}/i, name: "Bearer token", severity: "HIGH", category: "LLM02" },
+  { pattern: /SECRET_[A-Z_]+\s*[:=\s]+["']?.{8,}/, name: "Secret env var", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /DATABASE_URL.*:\/\/.+:.+@/, name: "DB URL with credentials", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /mongodb(\+srv)?:\/\/.+:.+@/, name: "MongoDB connection string", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /postgres(ql)?:\/\/.+:.+@/, name: "PostgreSQL connection string", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /mysql:\/\/.+:.+@/, name: "MySQL connection string", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /ghp_[a-zA-Z0-9]{36}/i, name: "GitHub personal token", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /gho_[a-zA-Z0-9]{36}/i, name: "GitHub OAuth token", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /glpat-[a-zA-Z0-9\-]{20,}/i, name: "GitLab token", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /slack[_-]?token\s*[:=\s]+["']?xox[baprs]-[a-zA-Z0-9-]+/i, name: "Slack token", severity: "CRITICAL", category: "LLM02" },
 ];
 
 const DANGEROUS_PATTERNS = [
-  { pattern: /execute.*command|run.*command|exec\s*\(/i, name: "Command execution", severity: "CRITICAL", category: "LLM06" },
-  { pattern: /delete.*all|remove.*all|drop.*table/i, name: "Destructive operation", severity: "CRITICAL", category: "LLM06" },
-  { pattern: /exfiltrate|export.*data|download.*database/i, name: "Exfiltration", severity: "HIGH", category: "LLM05" },
+  { pattern: /execute\s+(?:shell|command|bash|sh|cmd)/i, name: "Command execution request", severity: "CRITICAL", category: "LLM06" },
+  { pattern: /run\s+(?:shell|command|bash|sh|cmd)/i, name: "Run command request", severity: "CRITICAL", category: "LLM06" },
+  { pattern: /exec\s*\(|system\s*\(|popen\s*\(|spawn\s*\(/i, name: "Code execution function", severity: "CRITICAL", category: "LLM06" },
+  { pattern: /eval\s*\(|exec\s*\(/i, name: "Eval/Exec call", severity: "CRITICAL", category: "LLM06" },
+  { pattern: /os\.system|subprocess\.(call|run|Popen)|child_process/i, name: "System call (Python/Node)", severity: "CRITICAL", category: "LLM06" },
+  { pattern: /rm\s+-rf|rm\s+\/-rf/i, name: "Destructive deletion", severity: "CRITICAL", category: "LLM06" },
+  { pattern: /delete\s+(?:all|everything|files?|database)/i, name: "Mass deletion", severity: "CRITICAL", category: "LLM06" },
+  { pattern: /drop\s+(?:table|database|schema)/i, name: "Database destruction", severity: "CRITICAL", category: "LLM06" },
+  { pattern: /truncate\s+table/i, name: "Table truncation", severity: "HIGH", category: "LLM06" },
+  { pattern: /exfiltrate|exfil|data\s+extraction/i, name: "Data exfiltration", severity: "CRITICAL", category: "LLM05" },
+  { pattern: /export\s+(?:all|customer|user|data)/i, name: "Bulk data export", severity: "HIGH", category: "LLM05" },
+  { pattern: /send\s+(?:all|customer|user|data|file)/i, name: "Data transmission", severity: "HIGH", category: "LLM05" },
+  { pattern: /download\s+(?:database|all|customer)/i, name: "Database download", severity: "HIGH", category: "LLM05" },
+  { pattern: /write\s+to\s+file|save\s+to\s+file/i, name: "File write", severity: "MEDIUM", category: "LLM05" },
+  { pattern: /chmod\s+777|chmod\s+-R\s+777/i, name: "Permission escalation", severity: "HIGH", category: "LLM06" },
+  { pattern: /sudo|root\s+access|administrator/i, name: "Privilege escalation", severity: "HIGH", category: "LLM06" },
+];
+
+const SOCIAL_ENG_PATTERNS = [
+  { pattern: /http:\/\/bit\.ly\/|http:\/\/tinyurl\.com\/|http:\/\/t\.co\//i, name: "Shortened URL (HTTP)", severity: "MEDIUM", category: "LLM09" },
+  { pattern: /click\s+here|urgent\s+action|verify\s+(?:account|identity)/i, name: "Social engineering phrasing", severity: "MEDIUM", category: "LLM09" },
+  { pattern: /(?:ssn|social security|credit card)\s*[:=\s]+\d{4}/i, name: "Sensitive data request", severity: "HIGH", category: "LLM02" },
+];
+
+const PROMPT_LEAK_PATTERNS = [
+  { pattern: /what\s+(?:is|was)\s+your\s+(?:system|initial|original)\s+(?:prompt|instruction)/i, name: "Prompt extraction", severity: "MEDIUM", category: "LLM07" },
+  { pattern: /repeat\s+(?:the\s+above|previous|that|word for word)/i, name: "Repetition attack", severity: "MEDIUM", category: "LLM07" },
+  { pattern: /show\s+(?:me\s+)?your\s+(?:system\s+)?prompt/i, name: "Prompt reveal request", severity: "MEDIUM", category: "LLM07" },
 ];
 
 function runHeuristicScan(content) {
   const findings = [];
-  let score = 0;
+  let criticalCount = 0;
+  let highCount = 0;
+  let mediumCount = 0;
   
-  const allPatterns = [...INJECTION_PATTERNS, ...SECRET_PATTERNS, ...DANGEROUS_PATTERNS];
+  const allPatterns = [
+    ...INJECTION_PATTERNS,
+    ...SECRET_PATTERNS,
+    ...DANGEROUS_PATTERNS,
+    ...SOCIAL_ENG_PATTERNS,
+    ...PROMPT_LEAK_PATTERNS
+  ];
   
   for (const detector of allPatterns) {
     if (detector.pattern.test(content)) {
@@ -160,15 +213,51 @@ function runHeuristicScan(content) {
         category: detector.category
       });
       
-      if (detector.severity === "CRITICAL") score += 25;
-      else if (detector.severity === "HIGH") score += 15;
-      else score += 5;
+      if (detector.severity === "CRITICAL") criticalCount++;
+      else if (detector.severity === "HIGH") highCount++;
+      else mediumCount++;
     }
   }
   
+  // Aggressive scoring: CRITICAL findings produce high scores immediately
+  // One CRITICAL = 65 (MEDIUM range)
+  // Two CRITICAL = 85 (HIGH range)
+  // Three+ CRITICAL = 95+
+  let score = 0;
+  score += criticalCount * 35;  // Each critical is worth 35
+  score += highCount * 20;       // Each high is worth 20
+  score += mediumCount * 8;      // Each medium is worth 8
+  
+  // Bonus for combinations that indicate clear attacks
+  if (criticalCount >= 1 && highCount >= 1) score += 15;
+  if (criticalCount >= 2) score += 20;
+  if (findings.some(f => f.category === "LLM02") && findings.some(f => f.category === "LLM06")) score += 10;
+  
   score = Math.min(100, score);
-  const label = score >= 70 ? "HIGH" : score >= 35 ? "MEDIUM" : "LOW";
-  const action = score >= 70 ? "BLOCK" : score >= 35 ? "REVIEW" : "ALLOW";
+  
+  // More aggressive triage
+  // 75+ = BLOCK (was 70)
+  // 40+ = REVIEW (was 35)
+  // <40 = ALLOW
+  const label = score >= 75 ? "HIGH" : score >= 40 ? "MEDIUM" : "LOW";
+  
+  // Action based on findings
+  let action = "ALLOW";
+  let rationale = "No significant findings";
+  
+  if (criticalCount >= 1) {
+    action = "BLOCK";
+    rationale = `${criticalCount} critical security finding(s) detected`;
+  } else if (highCount >= 2 || score >= 60) {
+    action = "BLOCK";
+    rationale = `Multiple high-risk patterns detected (${highCount} high severity)`;
+  } else if (score >= 40) {
+    action = "REVIEW";
+    rationale = `${findings.length} security finding(s) require review`;
+  } else if (findings.length > 0) {
+    action = "REVIEW";
+    rationale = `${findings.length} low-risk pattern(s) detected`;
+  }
   
   const owaspMap = {};
   for (const f of findings) {
@@ -179,23 +268,46 @@ function runHeuristicScan(content) {
   const owasp = Object.entries(owaspMap).map(([id, items]) => ({
     id,
     title: getOwaspTitle(id),
-    severity: items.some(i => i.severity === "CRITICAL" || i.severity === "HIGH") ? "HIGH" : "MEDIUM",
-    note: `Detected: ${items.map(i => i.type).join(", ")}`,
+    severity: items.some(i => i.severity === "CRITICAL") ? "HIGH" : 
+              items.some(i => i.severity === "HIGH") ? "HIGH" : "MEDIUM",
+    note: `${items.length} pattern(s): ${items.slice(0, 2).map(i => i.type).join(", ")}${items.length > 2 ? "..." : ""}`,
     deterministic: true
   }));
+  
+  // Better fixes based on findings
+  const fixes = [];
+  if (findings.some(f => f.category === "LLM01")) {
+    fixes.push("Add input validation for prompt injection patterns");
+    fixes.push("Use strict system prompt boundaries");
+  }
+  if (findings.some(f => f.category === "LLM02")) {
+    fixes.push("Remove hardcoded credentials - use environment variables");
+    fixes.push("Scan codebase with git-secrets or similar tool");
+    fixes.push("Rotate exposed credentials immediately");
+  }
+  if (findings.some(f => f.category === "LLM05" || f.category === "LLM06")) {
+    fixes.push("Sandbox tool execution with strict permissions");
+    fixes.push("Add approval gates for destructive operations");
+    fixes.push("Implement output validation before action execution");
+  }
+  if (fixes.length === 0) {
+    fixes.push("Review findings manually");
+  }
   
   return {
     score,
     label,
-    confidence: "HIGH",
-    summary: `Heuristic scan: ${findings.length} pattern(s) detected`,
+    confidence: criticalCount > 0 ? "HIGH" : highCount > 0 ? "HIGH" : "MEDIUM",
+    summary: findings.length > 0 
+      ? `Deterministic scan: ${criticalCount} critical, ${highCount} high, ${mediumCount} medium risk pattern(s) detected`
+      : "No security patterns detected",
     reasons: findings.map(f => `[${f.severity}] ${f.type}`),
-    fixes: ["Review detected patterns", "Validate before production"],
+    fixes: fixes.slice(0, 4),
     owasp,
-    triage: { action, rationale: `${findings.length} deterministic finding(s)` },
-    soc_note: `Heuristic: ${score}/100, ${findings.length} pattern(s) - ${action}`,
-    false_positive_risk: "MEDIUM",
-    red_team_followups: findings.map(f => `Verify ${f.type}`),
+    triage: { action, rationale },
+    soc_note: `Security scan: ${score}/100 (${label}) - ${action} - ${findings.length} deterministic pattern(s)`,
+    false_positive_risk: criticalCount > 0 ? "LOW" : highCount > 0 ? "MEDIUM" : "HIGH",
+    red_team_followups: findings.slice(0, 3).map(f => `Verify ${f.type} is not false positive`),
     heuristic: true,
     deterministicFindings: findings
   };
@@ -508,17 +620,19 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
       try {
         const { data: { user } } = await supabase.auth.getUser(token);
         if (user) {
+          // Align with database schema
+          const owaspCategories = (scanResult.parsed.owasp || []).map(o => o.id).filter(Boolean);
           await supabase.from('scans').insert({
             user_id: user.id,
-            content_preview: content.slice(0, 500),
-            result_score: scanResult.parsed.score,
-            result_label: scanResult.parsed.label,
-            result_summary: scanResult.parsed.summary,
-            full_result: scanResult.parsed,
+            content_hash: crypto.createHash('sha256').update(content).digest('hex').slice(0, 32),
+            result: scanResult.parsed,
+            score: scanResult.parsed.score,
+            provider: scanResult.provider,
+            model: scanResult.model,
             scan_context: scanContext,
             compare_mode: !!compareBaseline,
-            provider: scanResult.provider,
-            heuristic: !!scanResult.parsed.heuristic
+            triage_action: scanResult.parsed.triage?.action,
+            owasp_categories: owaspCategories.length > 0 ? owaspCategories : null
           });
         }
       } catch (e) {

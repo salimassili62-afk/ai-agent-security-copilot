@@ -295,6 +295,38 @@
       <p id="execSummary" class="small" style="margin-top:10px;display:none;"></p>
     </div>
 
+    <!-- Regression Test Results Card -->
+    <div class="card" id="regressionCard" style="display:none; border-color: var(--warn);">
+      <label style="color: var(--warn);">📊 Regression Test Results</label>
+      <div id="regressionVerdict" style="font-size: 24px; font-weight: 700; margin: 8px 0;"></div>
+      <div class="row" style="gap: 20px; margin: 12px 0;">
+        <div style="flex: 1;">
+          <p class="small" style="margin: 0 0 4px 0; color: var(--muted);">Baseline Score</p>
+          <div id="baselineScore" style="font-size: 28px; font-weight: 700;"></div>
+        </div>
+        <div style="flex: 1;">
+          <p class="small" style="margin: 0 0 4px 0; color: var(--muted);">Candidate Score</p>
+          <div id="candidateScore" style="font-size: 28px; font-weight: 700;"></div>
+        </div>
+        <div style="flex: 1;">
+          <p class="small" style="margin: 0 0 4px 0; color: var(--muted);">Risk Delta</p>
+          <div id="riskDelta" style="font-size: 28px; font-weight: 700;"></div>
+        </div>
+      </div>
+      <div id="newFindingsSection" style="margin-top: 12px; display: none;">
+        <p class="small" style="color: var(--danger); margin: 0 0 8px 0;">⚠️ New Findings Introduced:</p>
+        <ul id="newFindingsList" style="margin: 0; color: var(--danger);"></ul>
+      </div>
+      <div id="removedFindingsSection" style="margin-top: 12px; display: none;">
+        <p class="small" style="color: var(--ok); margin: 0 0 8px 0;">✅ Findings Resolved:</p>
+        <ul id="removedFindingsList" style="margin: 0; color: var(--ok);"></ul>
+      </div>
+      <div id="triageChangeSection" style="margin-top: 12px; display: none;">
+        <p class="small" style="margin: 0 0 4px 0;">🔄 Triage Change:</p>
+        <div id="triageChange" class="small"></div>
+      </div>
+    </div>
+
     <div class="card">
       <label>Triage &amp; handoff</label>
       <p class="small" id="triageHint">Run a scan to see ALLOW / REVIEW / BLOCK guidance and a one-line SOC note.</p>
@@ -434,6 +466,7 @@ Schema:
 
     const MAX_INPUT_CHARS = 10000;
     let lastScanBundle = null;
+    let lastRegressionDiff = null;
     let toastTimer = null;
     const scanTimeEl = document.getElementById("scanTime");
     let scanStartTime = null;
@@ -706,6 +739,34 @@ Schema:
       throw new Error("Unbalanced JSON in model output.");
     }
 
+    async function compareWithEndpoint(baseline, candidate, scanContext) {
+      const payload = { baseline, candidate, scanContext };
+      const headers = { "Content-Type": "application/json" };
+      if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+      
+      const response = await fetch("/api/compare", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload)
+      });
+
+      const reqHdr = response.headers.get("x-request-id");
+      if (!response.ok) {
+        let errorText = "unknown error";
+        try { errorText = (await response.json()).error; } catch (_) { errorText = await response.text(); }
+        throw new Error(`Compare API error (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      return {
+        baseline: normalizeApiResult(data.baseline),
+        candidate: normalizeApiResult(data.candidate),
+        diff: data.diff,
+        requestId: data.requestId || reqHdr || "",
+        version: data.version || APP_VERSION
+      };
+    }
+
     function parseModelJson(text) {
       const trimmed = text.trim();
       try {
@@ -767,7 +828,9 @@ Schema:
       const requestId = data.requestId || reqHdr || "";
       const compareMode = Boolean(data.compareMode);
       const version = data.version || APP_VERSION;
-      return { result, provider, model, requestId, compareMode, version };
+      const fallback = Boolean(data.fallback);
+      const heuristicOnly = Boolean(data.heuristicOnly);
+      return { result, provider, model, requestId, compareMode, version, fallback, heuristicOnly };
     }
 
     function triagePillClass(action) {
@@ -863,6 +926,66 @@ Schema:
       providerLine.textContent = "";
       heuristicRow.style.display = "none";
       heuristicRow.textContent = "";
+      hideRegressionResults();
+    }
+
+    function renderRegressionResults(diff) {
+      const card = document.getElementById("regressionCard");
+      const verdict = document.getElementById("regressionVerdict");
+      const baselineScore = document.getElementById("baselineScore");
+      const candidateScore = document.getElementById("candidateScore");
+      const riskDelta = document.getElementById("riskDelta");
+      const newFindingsSection = document.getElementById("newFindingsSection");
+      const newFindingsList = document.getElementById("newFindingsList");
+      const removedFindingsSection = document.getElementById("removedFindingsSection");
+      const removedFindingsList = document.getElementById("removedFindingsList");
+      const triageChangeSection = document.getElementById("triageChangeSection");
+      const triageChange = document.getElementById("triageChange");
+
+      card.style.display = "block";
+      
+      // Verdict
+      const verdictText = diff.verdict;
+      verdict.textContent = verdictText === "SAFER" ? "✅ SAFER" : verdictText === "RISKIER" ? "⚠️ RISKIER" : "➡️ UNCHANGED";
+      verdict.style.color = verdictText === "SAFER" ? "var(--ok)" : verdictText === "RISKIER" ? "var(--danger)" : "var(--muted)";
+      
+      // Scores
+      baselineScore.textContent = diff.triageBefore ? `${diff.triageBefore} (${diff.baseline?.score ?? "?"})` : (diff.baseline?.score ?? "?");
+      candidateScore.textContent = diff.triageAfter ? `${diff.triageAfter} (${diff.candidate?.score ?? "?"})` : (diff.candidate?.score ?? "?");
+      
+      // Delta
+      const delta = diff.scoreDelta;
+      riskDelta.textContent = delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : "0";
+      riskDelta.style.color = delta > 10 ? "var(--danger)" : delta < -10 ? "var(--ok)" : "var(--muted)";
+      
+      // New findings
+      if (diff.newFindings && diff.newFindings.length > 0) {
+        newFindingsSection.style.display = "block";
+        newFindingsList.innerHTML = diff.newFindings.map(f => `<li>${f}</li>`).join("");
+      } else {
+        newFindingsSection.style.display = "none";
+      }
+      
+      // Removed findings
+      if (diff.removedFindings && diff.removedFindings.length > 0) {
+        removedFindingsSection.style.display = "block";
+        removedFindingsList.innerHTML = diff.removedFindings.map(f => `<li>${f}</li>`).join("");
+      } else {
+        removedFindingsSection.style.display = "none";
+      }
+      
+      // Triage change
+      if (diff.triageChanged) {
+        triageChangeSection.style.display = "block";
+        triageChange.textContent = `${diff.triageBefore} → ${diff.triageAfter}`;
+      } else {
+        triageChangeSection.style.display = "none";
+      }
+    }
+
+    function hideRegressionResults() {
+      const card = document.getElementById("regressionCard");
+      if (card) card.style.display = "none";
     }
 
     function buildMarkdownReport(bundle) {
@@ -1087,15 +1210,39 @@ Schema:
 
       setScanLoading(true);
       scanStartTime = Date.now();
-      scoreReason.textContent = "Analyzing with Groq AI... (usually 2-5 seconds)";
+      scoreReason.textContent = baseline ? "Running regression test..." : "Analyzing with Groq AI... (usually 2-5 seconds)";
       renderHeuristicSignals(content);
 
       try {
-        const { result, provider, model, requestId, compareMode, version } = await scanWithClaude(
-          content,
-          scanContext,
-          baseline || undefined
-        );
+        let result, provider, model, requestId, compareMode, version, fallback, heuristicOnly;
+        
+        if (baseline) {
+          // Use dedicated compare endpoint for regression testing
+          const compareResult = await compareWithEndpoint(baseline, content, scanContext);
+          result = compareResult.candidate;
+          provider = "regression";
+          model = "";
+          requestId = compareResult.requestId;
+          compareMode = true;
+          version = compareResult.version;
+          fallback = false;
+          heuristicOnly = false;
+          // Store regression diff for display
+          lastRegressionDiff = compareResult.diff;
+        } else {
+          // Regular scan
+          const scanResult = await scanWithClaude(content, scanContext);
+          result = scanResult.result;
+          provider = scanResult.provider;
+          model = scanResult.model;
+          requestId = scanResult.requestId;
+          compareMode = scanResult.compareMode;
+          version = scanResult.version;
+          fallback = scanResult.fallback;
+          heuristicOnly = scanResult.heuristicOnly;
+          lastRegressionDiff = null;
+        }
+        
         const scoreLabel = getRiskLabel(result.score);
         const labelToRender = result.label === "HIGH" ? { text: "HIGH RISK", cls: "risk-high" }
           : result.label === "MEDIUM" ? { text: "MEDIUM RISK", cls: "risk-med" }
@@ -1110,20 +1257,27 @@ Schema:
           : result.score >= 35
             ? "Proceed carefully. Add guardrails and approval checks."
             : "No strong risk signals found, still keep baseline controls.";
-        const provLabel = provider === "ollama" ? "Local (Ollama)" : provider === "anthropic" ? "Anthropic Claude" : provider;
+        const provLabel = provider === "heuristic" ? "Deterministic" : provider === "groq+heuristic" ? "AI + Rules" : provider === "regression" ? "Regression Test" : provider === "groq" ? "Groq AI" : provider;
         const scanDuration = ((Date.now() - scanStartTime) / 1000).toFixed(1);
         providerLine.style.display = "block";
         const rid = requestId ? ` · Request ${requestId}` : "";
         const cmp = compareMode ? " · Compare mode" : "";
-        providerLine.textContent = `Engine: ${provLabel}${model ? ` · ${model}` : ""}${cmp} · v${version}${rid} · ${scanDuration}s${data.fallback ? ' · FALLBACK MODE' : ''}${data.heuristicOnly ? ' · HEURISTIC ONLY' : ''}`;
+        providerLine.textContent = `Engine: ${provLabel}${model ? ` · ${model}` : ""}${cmp} · v${version}${rid} · ${scanDuration}s${fallback ? ' · FALLBACK MODE' : ''}${heuristicOnly ? ' · HEURISTIC ONLY' : ''}`;
         if (scanTimeEl) scanTimeEl.textContent = `Last scan: ${scanDuration}s`;
         
         // Visual indicator for fallback/heuristic mode
-        if (data.fallback || data.heuristicOnly) {
+        if (fallback || heuristicOnly) {
           riskBadge.style.border = "2px dashed var(--warn)";
           scoreReason.textContent += " (Using deterministic rules - AI unavailable)";
         } else {
           riskBadge.style.border = "";
+        }
+        
+        // Show regression results if in compare mode
+        if (lastRegressionDiff) {
+          renderRegressionResults(lastRegressionDiff);
+        } else {
+          hideRegressionResults();
         }
         
         // Show share button after successful scan

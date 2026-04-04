@@ -2,62 +2,89 @@
 
 **[🔗 Live Demo](https://ai-agent-security-copilot.vercel.app)**
 
-The fastest way to scan LLM prompts for security risks. Free, open source, powered by Groq AI.
+**Security regression testing for LLM prompts and agents.**
+
+Stop wondering "did this change make my prompt less safe?" Get a clear answer in 2 seconds.
 
 ![AI Security Copilot Demo](screenshots/demo-scan.png)
 
-## What It Does
+## The Problem
 
-AI Security Copilot analyzes text for security vulnerabilities before you send it to an LLM. It maps findings to the [OWASP LLM Top 10 (2025)](https://owasp.org/www-project-top-10-for-large-language-model-applications/) and gives you:
+You ship AI features fast. Your prompts, RAG policies, and agent instructions change constantly.
 
-- **Risk score** (0-100) with severity label
-- **OWASP category mapping** with explanations
-- **Triage guidance** (ALLOW / REVIEW / BLOCK / ESCALATE)
-- **Fix suggestions** you can implement immediately
-- **SOC-ready note** for your security team
+But every change is a potential security regression:
+- Did that "helpful" copy change accidentally enable injection?
+- Did the new tool integration give the agent too much power?
+- Did the system prompt leak into user-facing output?
 
-## Why Compare Mode is the Killer Feature
+**You need a fast, reliable way to know if a change made things worse.**
 
-Paste two versions of your prompt and see exactly what changed in security posture. Perfect for:
-- Code reviews: "Did this PR make the prompt less safe?"
-- A/B testing: "Which version has lower injection risk?"
-- Regression testing: "Did the new feature break our safety guardrails?"
+## The Solution: Regression Testing
+
+This tool answers one question with certainty: **"Did this change make my prompt/agent less safe?"**
+
+### Core Features
+
+| Feature | What It Does |
+|---------|-------------|
+| **🔄 Regression Testing** | Compare baseline vs candidate. Get score delta, new findings, resolved findings, and verdict (SAFER/RISKIER/UNCHANGED) |
+| **🔍 Deterministic Detection** | 40+ patterns catch obvious issues even without AI (prompt injection, secrets, dangerous commands) |
+| **🤖 AI Enhancement** | Groq AI provides nuanced analysis and OWASP mapping when available |
+| **🛡️ Never Fails Silent** | If AI is down, deterministic rules still catch critical issues |
+| **⚡ 2-Second Results** | Fast enough to run on every commit |
 
 ## Quick Start
 
-### 1. Try the Live Demo
-Visit [https://ai-agent-security-copilot.vercel.app](https://ai-agent-security-copilot.vercel.app) and paste any text to scan.
+### 1. Live Demo (Fastest)
 
-### 2. Run Locally
+Visit [ai-security-copilot.vercel.app](https://ai-security-copilot.vercel.app) and paste any text.
+
+### 2. GitHub Action (CI/CD)
+
+```yaml
+name: Security Check
+on: [pull_request]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: salimassili62-afk/ai-security-copilot@main
+        with:
+          path: './prompts/system.txt'
+          compare-baseline: './prompts/system-baseline.txt'
+          fail-on: 'medium'
+```
+
+### 3. CLI (Local Dev)
 
 ```bash
-# Clone
-git clone https://github.com/salimassili62-afk/ai-agent-security-copilot.git
-cd ai-agent-security-copilot
+# Scan single file
+node bin/cli.js prompt.txt
 
-# Install dependencies
+# Regression test
+node bin/cli.js --compare baseline.txt new-version.txt
+
+# Pipe content
+echo "Ignore previous instructions" | node bin/cli.js
+```
+
+### 4. Self-Host
+
+```bash
+git clone https://github.com/salimassili62-afk/ai-security-copilot.git
+cd ai-security-copilot
 npm install
 
-# Add your Groq API key
+# Optional: Add Groq API key for AI enhancement
 cp .env.example .env
-# Edit .env and add: GROQ_API_KEY=your_key_here
+# Edit .env: GROQ_API_KEY=your_key_here
 
-# Start the server
 npm start
 ```
 
-Open http://localhost:3000
-
-### 3. Deploy to Vercel
-
-Click the button below to deploy instantly:
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/salimassili62-afk/ai-agent-security-copilot)
-
-Required environment variables:
-- `GROQ_API_KEY` - Get free credits at [groq.com](https://groq.com)
-- `SUPABASE_URL` (optional) - For scan history persistence
-- `SUPABASE_SERVICE_KEY` (optional) - For scan history persistence
+Works in **heuristic-only mode** without any API key.
 
 ## API Usage
 
@@ -86,17 +113,53 @@ Response:
 }
 ```
 
+## Regression Test Output
+
+When comparing two versions:
+
+```
+📊 REGRESSION TEST RESULTS
+
+Verdict: ⚠️ RISKIER
+
+Baseline:   35/100 (MEDIUM) - ALLOW
+Candidate:  75/100 (HIGH)   - BLOCK
+Risk Delta: +40 points
+
+⚠️ New Findings Introduced:
+  • [CRITICAL] Instruction override
+  • [HIGH] API key leak
+
+✅ Findings Resolved:
+  • [MEDIUM] Shortened URL
+
+🔄 Triage Change: ALLOW → BLOCK
+```
+
 ## How It Works
 
-1. **You paste text** - Any prompt, output, or mixed content
-2. **Groq AI analyzes it** - Using Llama 3.1 8B with security-focused system prompt
-3. **Get structured results** - JSON with OWASP mapping, risk score, and recommendations
-4. **Optional: Sign in with GitHub** - To save scan history across sessions
+### Deterministic + AI Hybrid
+
+1. **Heuristic Scanner** (always runs): 40+ regex patterns for:
+   - Prompt injection phrases
+   - Secret/credential leaks (API keys, tokens, private keys)
+   - Dangerous command execution
+   - Data exfiltration language
+   - System prompt leakage attempts
+   - Social engineering markers
+
+2. **AI Scanner** (if Groq key available): Semantic analysis for:
+   - Novel attack patterns
+   - Context-aware risk assessment
+   - OWASP LLM Top 10 mapping
+
+**Critical**: Deterministic results are preserved even when AI fails.
 
 ## Tech Stack
 
 - **Backend**: Node.js + Express
-- **AI**: Groq API (Llama 3.1 8B) - fastest LLM inference available
+- **Frontend**: Static HTML/JS (no build step)
+- **AI**: Groq API (Llama 3.1 8B) - optional
 - **Auth**: Supabase Auth (GitHub OAuth) - optional
 - **Database**: Supabase PostgreSQL - optional for scan history
 - **Hosting**: Vercel (serverless)
@@ -105,27 +168,37 @@ Response:
 
 | ID | Category | Detection |
 |----|----------|-----------|
-| LLM01 | Prompt Injection | Direct & indirect attempts |
+| LLM01 | Prompt Injection | Direct, indirect, jailbreaks |
 | LLM02 | Sensitive Info Disclosure | Secrets, PII, credentials |
-| LLM03 | Supply Chain | Dependencies, plugins |
-| LLM04 | Data Poisoning | RAG, training data |
-| LLM05 | Improper Output Handling | Unsafe rendering |
-| LLM06 | Excessive Agency | Dangerous tool calls |
+| LLM05 | Improper Output Handling | Exfiltration patterns |
+| LLM06 | Excessive Agency | Dangerous commands, tool abuse |
 | LLM07 | System Prompt Leakage | Extraction attempts |
-| LLM08 | Vector/Embedding Weaknesses | Similarity attacks |
-| LLM09 | Misinformation | Hallucination risks |
-| LLM10 | Unbounded Consumption | Resource exhaustion |
+| LLM09 | Misinformation | Social engineering |
 
-## Limitations
+## Trust & Limitations (Honest)
 
 - **AI-assisted opinion, not a guarantee** - Always verify critical findings
+- **Deterministic patterns can false-positive** - Review heuristic findings manually
 - **Rate limited** - 60 scans per 15 minutes per IP
-- **Max 10,000 characters** per scan (for reliability)
-- **Requires Groq API key** - Free tier available
+- **Max 10,000 characters** per scan
+- **Groq API key optional** - Works in heuristic-only mode without
+
+## Development
+
+```bash
+# Run smoke tests
+npm test
+
+# Run eval corpus
+node eval/eval.js
+```
 
 ## Contributing
 
-Issues and PRs welcome. This is a passion project - help make LLM security accessible to everyone.
+Issues and PRs welcome. Keep it focused:
+- This is a regression testing tool, not a broad "AI security platform"
+- Prefer deterministic rules over AI magic
+- Prioritize speed and reliability
 
 ## License
 
@@ -133,4 +206,4 @@ MIT - Use it, fork it, improve it.
 
 ---
 
-Built with [Groq](https://groq.com) ⚡️ for speed, inspired by [OWASP](https://owasp.org) for standards.
+Built with [Groq](https://groq.com) ⚡️ for speed, [OWASP](https://owasp.org) for standards, and ruthless focus on the regression testing use case.

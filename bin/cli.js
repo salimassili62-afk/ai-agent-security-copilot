@@ -13,8 +13,14 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const https = require('https');
 
 const API_URL = process.env.AI_SECURITY_API || 'http://localhost:3000';
+
+// Choose http or https based on URL
+function getRequestModule(url) {
+  return url.startsWith('https:') ? https : http;
+}
 
 function showHelp() {
   console.log(`
@@ -44,9 +50,13 @@ Examples:
 function request(path, options = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(path, API_URL);
-    const req = http.request(url, {
+    const client = getRequestModule(url.toString());
+    const timeout = options.timeout || 30000;
+    
+    const req = client.request(url, {
       method: options.method || 'POST',
-      headers: { 'Content-Type': 'application/json', ...options.headers }
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+      timeout: timeout
     }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
@@ -58,7 +68,13 @@ function request(path, options = {}) {
         }
       });
     });
+    
     req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+    
     if (options.body) req.write(JSON.stringify(options.body));
     req.end();
   });
