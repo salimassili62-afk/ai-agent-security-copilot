@@ -57,6 +57,11 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static("."));
 
+// Serve index.html for root path
+app.get("/", (req, res) => {
+  res.sendFile("index.html", { root: "." });
+});
+
 const rateBuckets = new Map();
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
