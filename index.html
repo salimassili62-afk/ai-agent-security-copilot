@@ -508,9 +508,7 @@ Schema:
     async function scanWithClaude(content, scanContext, compareBaseline) {
       const payload = {
         content,
-        scanContext,
-        model: CLAUDE_MODEL,
-        systemPrompt: SECURITY_SYSTEM_PROMPT
+        scanContext
       };
       if (compareBaseline) payload.compareBaseline = compareBaseline;
       const response = await fetch("/api/scan", {
@@ -538,12 +536,9 @@ Schema:
       }
 
       const data = await response.json();
-      const textOutput = typeof data.outputText === "string" ? data.outputText.trim() : "";
-      if (!textOutput) {
-        throw new Error("Empty scan response.");
-      }
-
-      const parsed = parseModelJson(textOutput);
+      
+      // New API returns pre-parsed result in 'parsed' field
+      const parsed = data.parsed || parseModelJson(data.outputText || "");
       const result = normalizeApiResult(parsed);
       const provider = typeof data.provider === "string" ? data.provider : "unknown";
       const model = typeof data.model === "string" ? data.model : "";
