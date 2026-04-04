@@ -33,7 +33,7 @@ const GROQ_TIMEOUT_MS = 120000;
 // In-memory rate limiting
 const rateBuckets = new Map();
 
-app.use(helmet());
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, ".")));
