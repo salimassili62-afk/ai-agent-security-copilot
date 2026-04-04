@@ -1,5 +1,7 @@
 # AI Security Copilot v2.0 - Enterprise Edition 🚀
 
+**🔗 Live Demo: https://ai-agent-security-copilot.vercel.app**
+
 **Enterprise-grade LLM security scanning with authentication, teams, API, and billing.**
 
 ## ✨ What's New in v2.0
