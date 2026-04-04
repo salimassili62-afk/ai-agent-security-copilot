@@ -249,4 +249,4 @@ Health check: `GET /api/health` returns JSON with `ok`, `version`, and `requestI
 - Add API endpoint for team integrations
 ## Demo
 
-![Scan Result](screenshots/scan-result.png)
+![AI Security Copilot Demo](screenshots/demo-scan.png)
