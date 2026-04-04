@@ -434,17 +434,34 @@ app.get("/api/scans/:id", authenticateToken, async (req, res) => {
 });
 
 // ENTERPRISE SCAN with auth, limits, batch support
-app.post("/api/scan", rateLimitScan, authenticateToken, async (req, res) => {
+app.post("/api/scan", rateLimitScan, async (req, res) => {
   try {
-    const tier = await getUserTier(req.userId);
-    const limitCheck = await checkScanLimit(req.userId, tier);
+    // Check if user is authenticated
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    let userId = null;
+    let tier = 'free';
     
-    if (!limitCheck.allowed) {
-      return res.status(429).json({
-        error: "Scan limit reached. Upgrade your plan to continue.",
-        upgrade_url: "/pricing",
-        scans_remaining: 0
-      });
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        userId = decoded.userId;
+        tier = await getUserTier(userId);
+      } catch (err) {
+        // Invalid token, continue as anonymous
+      }
+    }
+    
+    // Check scan limits for authenticated users only
+    if (userId) {
+      const limitCheck = await checkScanLimit(userId, tier);
+      if (!limitCheck.allowed) {
+        return res.status(429).json({
+          error: "Scan limit reached. Upgrade your plan to continue.",
+          upgrade_url: "/pricing",
+          scans_remaining: 0
+        });
+      }
     }
 
     const { content, systemPrompt, scanContext, compareBaseline, batch } = req.body || {};
@@ -455,7 +472,7 @@ app.post("/api/scan", rateLimitScan, authenticateToken, async (req, res) => {
 
     // Batch scanning (Pro tier only)
     if (batch && Array.isArray(content)) {
-      if (tier === 'free') {
+      if (!userId || tier === 'free') {
         return res.status(403).json({ error: "Batch scanning requires Starter tier or higher" });
       }
 
@@ -480,15 +497,17 @@ app.post("/api/scan", rateLimitScan, authenticateToken, async (req, res) => {
 
     const result = await performScan(content, systemPrompt, scanContext, compareBaseline);
     
-    // Save scan to history
-    await saveScan(req.userId, {
-      content,
-      result: result.parsed,
-      provider: result.provider,
-      model: result.model,
-      scanContext,
-      compareMode: !!compareBaseline
-    });
+    // Save scan to history (authenticated users only)
+    if (userId) {
+      await saveScan(userId, {
+        content,
+        result: result.parsed,
+        provider: result.provider,
+        model: result.model,
+        scanContext,
+        compareMode: !!compareBaseline
+      });
+    }
 
     res.json({
       outputText: result.outputText,
@@ -496,7 +515,7 @@ app.post("/api/scan", rateLimitScan, authenticateToken, async (req, res) => {
       provider: result.provider,
       model: result.model,
       compareMode: result.compareMode,
-      scans_remaining: limitCheck.remaining - 1,
+      scans_remaining: userId ? (await checkScanLimit(userId, tier)).remaining - 1 : null,
       requestId: req.requestId,
       version: APP_VERSION
     });
