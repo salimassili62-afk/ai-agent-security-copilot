@@ -10,6 +10,8 @@ const helmet = require("helmet");
 const cors = require("cors");
 const cron = require("node-cron");
 
+const path = require("path");
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_VERSION = "2.0.0";
@@ -55,13 +57,8 @@ const PRICING_TIERS = {
 app.use(helmet());
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
-app.use(express.static("."));
 
-// Serve index.html for root path
-app.get("/", (req, res) => {
-  res.sendFile("index.html", { root: "." });
-});
-
+// API routes first
 const rateBuckets = new Map();
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
@@ -882,6 +879,17 @@ cron.schedule('0 0 * * *', async () => {
   } else {
     console.log('Cleanup completed');
   }
+});
+
+// Static files and catch-all route (must be after all API routes)
+app.use(express.static(path.join(__dirname, ".")));
+
+// Serve index.html for root and all non-API routes (SPA support)
+app.get("*", (req, res) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: "API endpoint not found" });
+  }
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
 module.exports = app;
