@@ -79,8 +79,120 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, version: APP_VERSION, groqConfigured: !!process.env.GROQ_API_KEY, requestId: res.locals.requestId });
 });
 
-// PUBLIC SCAN - NO AUTH REQUIRED
-app.post("/api/scan", rateLimitScan, async (req, res) => {
+// Auth endpoints for GitHub OAuth via Supabase
+app.get("/api/auth/github", async (req, res) => {
+  if (!supabase) {
+    return res.status(503).json({ error: "Supabase not configured", requestId: res.locals.requestId });
+  }
+  try {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: {
+        redirectTo: `${req.protocol}://${req.get('host')}/auth/callback`
+      }
+    });
+    if (error) throw error;
+    res.json({ url: data.url, requestId: res.locals.requestId });
+  } catch (e) {
+    res.status(500).json({ error: e.message, requestId: res.locals.requestId });
+  }
+});
+
+app.get("/auth/callback", async (req, res) => {
+  // Handle OAuth callback - exchange code for session
+  const { code } = req.query;
+  if (!code) {
+    return res.redirect('/?error=oauth_failed');
+  }
+  // Redirect to frontend with code for exchange
+  res.redirect(`/?code=${code}&provider=github`);
+});
+
+app.post("/api/auth/session", async (req, res) => {
+  if (!supabase) {
+    return res.status(503).json({ error: "Supabase not configured", requestId: res.locals.requestId });
+  }
+  const { code } = req.body;
+  if (!code) {
+    return res.status(400).json({ error: "Missing code", requestId: res.locals.requestId });
+  }
+  try {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) throw error;
+    res.json({ 
+      user: data.user,
+      session: { access_token: data.session.access_token, expires_at: data.session.expires_at },
+      requestId: res.locals.requestId 
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message, requestId: res.locals.requestId });
+  }
+});
+
+app.get("/api/auth/user", async (req, res) => {
+  if (!supabase) {
+    return res.status(503).json({ error: "Supabase not configured", requestId: res.locals.requestId });
+  }
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.json({ user: null, requestId: res.locals.requestId });
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error) throw error;
+    res.json({ user, requestId: res.locals.requestId });
+  } catch (e) {
+    res.json({ user: null, error: e.message, requestId: res.locals.requestId });
+  }
+});
+
+app.post("/api/auth/logout", async (req, res) => {
+  if (!supabase) {
+    return res.status(503).json({ error: "Supabase not configured", requestId: res.locals.requestId });
+  }
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    try {
+      await supabase.auth.signOut({ scope: 'local', access_token: token });
+    } catch (e) {
+      // Ignore signout errors
+    }
+  }
+  res.json({ success: true, requestId: res.locals.requestId });
+});
+
+// Scan history endpoints (authenticated users only)
+app.get("/api/scans", async (req, res) => {
+  if (!supabase) {
+    return res.json({ scans: [], source: 'local', requestId: res.locals.requestId });
+  }
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.json({ scans: [], source: 'local', requestId: res.locals.requestId });
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const { data: { user } } = await supabase.auth.getUser(token);
+    if (!user) {
+      return res.json({ scans: [], source: 'local', requestId: res.locals.requestId });
+    }
+    const { data: scans, error } = await supabase
+      .from('scans')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (error) throw error;
+    res.json({ scans: scans || [], source: 'cloud', requestId: res.locals.requestId });
+  } catch (e) {
+    res.json({ scans: [], source: 'local', error: e.message, requestId: res.locals.requestId });
+  }
+});
+
+app.post("/api/scans", rateLimitScan, async (req, res) => {
+  // Public scan endpoint - works for guests and logged-in users
   try {
     const { content, scanContext, compareBaseline } = req.body || {};
     if (!content || typeof content !== "string") {
@@ -96,6 +208,30 @@ app.post("/api/scan", rateLimitScan, async (req, res) => {
     }
 
     const result = await performScan(content, scanContext, compareBaseline, groqApiKey);
+    
+    // Save to Supabase if user is logged in
+    const authHeader = req.headers.authorization;
+    if (supabase && authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      try {
+        const { data: { user } } = await supabase.auth.getUser(token);
+        if (user) {
+          await supabase.from('scans').insert({
+            user_id: user.id,
+            content_preview: content.slice(0, 500),
+            result_score: result.parsed.score,
+            result_label: result.parsed.label,
+            result_summary: result.parsed.summary,
+            full_result: result.parsed,
+            scan_context: scanContext,
+            compare_mode: !!compareBaseline
+          });
+        }
+      } catch (e) {
+        // Ignore save errors, still return scan result
+      }
+    }
+    
     res.json({
       outputText: result.outputText,
       parsed: result.parsed,
@@ -110,62 +246,6 @@ app.post("/api/scan", rateLimitScan, async (req, res) => {
     res.status(500).json({ error: error.message || "Scan failed", requestId: res.locals.requestId });
   }
 });
-
-async function performScan(content, scanContext, compareBaseline, groqApiKey) {
-  const baseline = typeof compareBaseline === "string" ? compareBaseline.trim() : "";
-  const contextLine = typeof scanContext === "string" && scanContext.trim() ? `[Scan context: ${scanContext.trim()}]\n\n` : "";
-  const wrappedContent = baseline
-    ? `${contextLine}[Compare mode]\nBASELINE:\n${baseline}\n\nCANDIDATE:\n${content}`
-    : `${contextLine}${content}`;
-  const compareSystem = baseline ? "\n\nCompare mode active. Score CANDIDATE vs BASELINE." : "";
-
-  const systemPrompt = `You are an AI security analyst. Analyze for: prompt injection, jailbreaks, data exfiltration, secrets leaks, social engineering, improper output handling, excessive agency, supply-chain issues, RAG poisoning, system prompt leakage, misinformation, resource abuse.
-
-Map to OWASP LLM Top 10 (2025): LLM01-10.
-
-Respond ONLY with JSON (no markdown fences):
-{
-  "score": 0-100,
-  "label": "LOW|MEDIUM|HIGH",
-  "confidence": "LOW|MEDIUM|HIGH",
-  "summary": "one sentence",
-  "reasons": ["string array"],
-  "fixes": ["string array"],
-  "owasp": [{"id":"LLM01","title":"Prompt Injection","severity":"LOW|MEDIUM|HIGH","note":"explanation"}],
-  "triage": {"action":"ALLOW|REVIEW|BLOCK|ESCALATE","rationale":"reason"},
-  "soc_note": "single line",
-  "false_positive_risk": "LOW|MEDIUM|HIGH",
-  "red_team_followups": ["3-6 test ideas"]
-}${compareSystem}`;
-
-  const timeout = abortAfter(GROQ_TIMEOUT_MS);
-  try {
-    const response = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqApiKey}` },
-      signal: timeout.src,
-      body: JSON.stringify({ model: GROQ_MODEL, max_tokens: 1500, temperature: 0.1, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: wrappedContent }] })
-    });
-    timeout.done();
-
-    if (!response.ok) throw new Error(`Groq API error: ${await response.text()}`);
-    const data = await response.json();
-    const outputText = data.choices?.[0]?.message?.content?.trim() || "";
-    if (!outputText) throw new Error("Empty AI response");
-
-    let parsed;
-    try {
-      const jsonMatch = outputText.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : outputText);
-    } catch {
-      parsed = { score: 0, label: "UNKNOWN", confidence: "LOW", summary: "Parse failed", reasons: ["AI format invalid"], fixes: ["Retry"], owasp: [], triage: { action: "REVIEW", rationale: "Parse error" }, soc_note: "Parse failed", false_positive_risk: "HIGH", red_team_followups: [] };
-    }
-    return { outputText, parsed, provider: "groq", model: GROQ_MODEL };
-  } catch (e) {
-    timeout.done();
-    throw e;
-  }
-}
 
 // Serve index.html for root
 app.get("/", (req, res) => {
@@ -184,5 +264,6 @@ if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`🚀 AI Security Copilot v${APP_VERSION} on port ${PORT}`);
     console.log(`🤖 Groq: ${process.env.GROQ_API_KEY ? '✅' : '❌'}`);
+    console.log(`🔐 Supabase Auth: ${supabase ? '✅' : '❌'}`);
   });
 }

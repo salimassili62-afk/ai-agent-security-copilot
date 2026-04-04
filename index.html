@@ -190,10 +190,38 @@
     .modal-panel h2 { margin: 0 0 10px; font-size: 18px; }
     .modal-panel ul { margin: 8px 0 0; padding-left: 18px; }
     .trust { border-left: 3px solid var(--primary); padding-left: 12px; }
+    .auth-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .auth-bar button {
+      font-size: 13px;
+      padding: 8px 14px;
+    }
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .user-info img {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
+    <div class="auth-bar">
+      <span id="authStatus"></span>
+      <button class="btn-ghost" id="loginBtn" style="display:none;">Sign in with GitHub</button>
+      <button class="btn-ghost" id="logoutBtn" style="display:none;">Logout</button>
+    </div>
     <h1>AI Agent Security Copilot</h1>
     <p class="sub">Pre-flight checks for LLM apps &amp; agents: map risk to <strong>OWASP LLM Top 10 (2025)</strong>, get triage guidance, and export a ticket-ready note for SOC or engineering. <button type="button" class="btn-ghost small" id="helpBtn" style="margin-left:8px;">Shortcuts</button></p>
 
@@ -378,6 +406,162 @@ Schema:
     const scanTimeEl = document.getElementById("scanTime");
     let scanStartTime = null;
 
+    // GitHub OAuth Auth State
+    let currentUser = null;
+    let accessToken = localStorage.getItem('access_token') || null;
+    const authStatus = document.getElementById("authStatus");
+    const loginBtn = document.getElementById("loginBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+
+    async function checkAuth() {
+      if (!accessToken) {
+        showGuestMode();
+        return;
+      }
+      try {
+        const res = await fetch("/api/auth/user", {
+          headers: { "Authorization": `Bearer ${accessToken}` }
+        });
+        const data = await res.json();
+        if (data.user) {
+          currentUser = data.user;
+          showLoggedInMode();
+          loadCloudHistory();
+        } else {
+          showGuestMode();
+        }
+      } catch (e) {
+        showGuestMode();
+      }
+    }
+
+    function showGuestMode() {
+      currentUser = null;
+      accessToken = null;
+      localStorage.removeItem('access_token');
+      authStatus.innerHTML = '<span class="small">Guest mode — <a href="#" id="enableCloudLink" style="color:var(--primary)">sign in to save scans</a></span>';
+      loginBtn.style.display = 'inline-block';
+      logoutBtn.style.display = 'none';
+      document.getElementById('enableCloudLink')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        startGitHubLogin();
+      });
+    }
+
+    function showLoggedInMode() {
+      const avatar = currentUser?.user_metadata?.avatar_url || '';
+      const name = currentUser?.user_metadata?.full_name || currentUser?.email || 'User';
+      authStatus.innerHTML = `<span class="user-info"><img src="${avatar}" alt="" onerror="this.style.display='none'" /> ${name}</span>`;
+      loginBtn.style.display = 'none';
+      logoutBtn.style.display = 'inline-block';
+    }
+
+    async function startGitHubLogin() {
+      try {
+        const res = await fetch("/api/auth/github");
+        const data = await res.json();
+        if (data.url) {
+          window.location.href = data.url;
+        } else {
+          showToast("GitHub login not available");
+        }
+      } catch (e) {
+        showToast("Failed to start GitHub login");
+      }
+    }
+
+    async function exchangeCodeForSession(code) {
+      try {
+        const res = await fetch("/api/auth/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code })
+        });
+        const data = await res.json();
+        if (data.session?.access_token) {
+          accessToken = data.session.access_token;
+          localStorage.setItem('access_token', accessToken);
+          currentUser = data.user;
+          showLoggedInMode();
+          loadCloudHistory();
+          showToast("Signed in successfully!");
+          // Clean URL
+          window.history.replaceState({}, document.title, '/');
+        }
+      } catch (e) {
+        showToast("Login failed");
+        showGuestMode();
+      }
+    }
+
+    async function logout() {
+      if (accessToken) {
+        try {
+          await fetch("/api/auth/logout", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${accessToken}` }
+          });
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+      localStorage.removeItem('access_token');
+      accessToken = null;
+      currentUser = null;
+      showGuestMode();
+      loadHistory(); // Reload local history
+      showToast("Logged out");
+    }
+
+    async function loadCloudHistory() {
+      if (!accessToken) return;
+      try {
+        const res = await fetch("/api/scans", {
+          headers: { "Authorization": `Bearer ${accessToken}` }
+        });
+        const data = await res.json();
+        if (data.scans?.length > 0) {
+          renderCloudHistory(data.scans);
+        }
+      } catch (e) {
+        // Fall back to local history
+      }
+    }
+
+    function renderCloudHistory(scans) {
+      historyEl.innerHTML = '<p class="small" style="margin-bottom:8px;">Cloud scan history (synced across devices)</p>';
+      scans.forEach((scan) => {
+        const div = document.createElement("div");
+        div.className = "history-item";
+        const strong = document.createElement("strong");
+        strong.textContent = `${scan.result_label || "—"} - ${scan.result_score}/100`;
+        div.appendChild(strong);
+        div.appendChild(document.createElement("br"));
+        const small = document.createElement("span");
+        small.className = "small";
+        small.textContent = new Date(scan.created_at).toLocaleString();
+        div.appendChild(small);
+        historyEl.appendChild(div);
+      });
+    }
+
+    // Check for OAuth callback
+    const urlParams = new URLSearchParams(window.location.search);
+    const oauthCode = urlParams.get('code');
+    const oauthError = urlParams.get('error');
+    if (oauthCode) {
+      exchangeCodeForSession(oauthCode);
+    } else if (oauthError) {
+      showToast("Login failed: " + oauthError);
+    }
+
+    // Event listeners
+    loginBtn.addEventListener("click", startGitHubLogin);
+    logoutBtn.addEventListener("click", logout);
+
+    // Initial auth check
+    checkAuth();
+
     if (buildMeta) buildMeta.textContent = `AI Agent Security Copilot v${APP_VERSION}`;
 
     compareToggle.addEventListener("change", () => {
@@ -513,11 +697,15 @@ Schema:
         scanContext
       };
       if (compareBaseline) payload.compareBaseline = compareBaseline;
-      const response = await fetch("/api/scan", {
+      const headers = {
+        "Content-Type": "application/json"
+      };
+      if (accessToken) {
+        headers["Authorization"] = `Bearer ${accessToken}`;
+      }
+      const response = await fetch("/api/scans", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers,
         body: JSON.stringify(payload)
       });
 
