@@ -6,18 +6,10 @@
       "use": "@vercel/node"
     }
   ],
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/health",
-      "dest": "server.js"
-    },
-    {
-      "src": "/api/scan",
-      "dest": "server.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/(.*)",
+      "destination": "server.js"
     }
   ]
 }
