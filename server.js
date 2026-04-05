@@ -473,6 +473,8 @@ Schema:
 async function performScan(content, scanContext, compareBaseline, groqApiKey, attempt = 1) {
   const MAX_RETRIES = 1;
   
+  console.log('DEBUG performScan: starting with groqApiKey:', !!groqApiKey, 'attempt:', attempt);
+  
   try {
     const baseline = sanitizeInput(compareBaseline || '');
     const wrappedContent = baseline
@@ -484,6 +486,8 @@ async function performScan(content, scanContext, compareBaseline, groqApiKey, at
       : SYSTEM_PROMPT;
 
     const timeout = abortAfter(GROQ_TIMEOUT_MS);
+    
+    console.log('DEBUG performScan: calling Groq API at', GROQ_BASE_URL);
     
     const response = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
       method: "POST",
@@ -505,10 +509,13 @@ async function performScan(content, scanContext, compareBaseline, groqApiKey, at
     
     timeout.done();
 
+    console.log('DEBUG performScan: Groq response status:', response.status);
+
     if (!response.ok) throw new Error(`Groq API ${response.status}`);
     
     const data = await response.json();
     const outputText = data.choices?.[0]?.message?.content?.trim() || "";
+    console.log('DEBUG performScan: outputText length:', outputText.length);
     if (!outputText) throw new Error("Empty response");
 
     let parsed;
@@ -529,12 +536,14 @@ async function performScan(content, scanContext, compareBaseline, groqApiKey, at
     return { outputText, parsed: merged, provider: "groq+heuristic", model: GROQ_MODEL, heuristicEnhanced: true };
     
   } catch (e) {
+    console.log('DEBUG performScan: ERROR caught:', e.message);
     if (attempt < MAX_RETRIES) {
       await new Promise(r => setTimeout(r, 1000));
       return performScan(content, scanContext, compareBaseline, groqApiKey, attempt + 1);
     }
     
     log('WARN', 'Falling back to heuristic scan', { error: e.message });
+    console.log('DEBUG performScan: falling back to heuristic');
     const heuristic = runHeuristicScan(content);
     return { 
       outputText: JSON.stringify(heuristic), 
@@ -598,6 +607,11 @@ function getFallbackResponse(reason) {
 app.post("/api/scans", rateLimitScan, async (req, res) => {
   const requestId = res.locals.requestId;
   
+  // Debug: Log environment variable status
+  console.log('DEBUG: GROQ_API_KEY exists:', !!process.env.GROQ_API_KEY);
+  console.log('DEBUG: GROQ_API_KEY length:', process.env.GROQ_API_KEY?.length);
+  console.log('DEBUG: All env keys:', Object.keys(process.env).filter(k => k.includes('GROQ') || k.includes('API')));
+  
   try {
     const { content, scanContext, compareBaseline } = req.body || {};
     
@@ -610,11 +624,16 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
     }
 
     const groqApiKey = process.env.GROQ_API_KEY;
+    console.log('DEBUG: groqApiKey assigned:', !!groqApiKey);
+    
     let scanResult;
     
     if (groqApiKey) {
+      console.log('DEBUG: Calling performScan with Groq API');
       scanResult = await performScan(content, scanContext, compareBaseline, groqApiKey);
+      console.log('DEBUG: performScan completed, provider:', scanResult.provider);
     } else {
+      console.log('DEBUG: No API key - using heuristic only');
       // No API key - use heuristic only
       const heuristic = runHeuristicScan(content);
       scanResult = {
