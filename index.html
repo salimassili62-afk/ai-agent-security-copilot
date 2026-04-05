@@ -235,7 +235,7 @@
         </div>
         <div style="flex: 1; min-width: 200px;">
           <div style="font-size: 24px; margin-bottom: 4px;">2️⃣</div>
-          <p class="small" style="margin: 0;">Groq AI analyzes in 2-5 seconds</p>
+          <p class="small" style="margin: 0;">Deterministic scanner + AI analysis</p>
         </div>
         <div style="flex: 1; min-width: 200px;">
           <div style="font-size: 24px; margin-bottom: 4px;">3️⃣</div>
@@ -245,14 +245,14 @@
     </div>
 
     <!-- Compare Mode Hero -->
-    <div class="card" style="background: linear-gradient(135deg, #1a2542 0%, #111a2e 100%);">
+    <div class="card" style="background: linear-gradient(135deg, #1a2542 0%, #111a2e 100%); border: 2px solid var(--warn);">
       <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-        <span style="font-size: 28px;">⚡</span>
-        <label style="margin: 0; color: var(--warn);">Compare Mode — See what changed</label>
+        <span style="font-size: 28px;">🔄</span>
+        <label style="margin: 0; color: var(--warn);">Regression Testing — The Killer Feature</label>
       </div>
-      <p class="small" style="margin: 0 0 12px 0;">Paste two versions of your prompt and see exactly what changed in security posture. Perfect for code reviews, A/B testing, and regression testing.</p>
+      <p class="small" style="margin: 0 0 12px 0;"><strong>Compare two versions</strong> and see exactly what changed in security posture. Perfect for code reviews, A/B testing, and catching regressions before they ship.</p>
       <label style="font-weight:500; display: flex; align-items: center; gap: 8px; cursor: pointer;">
-        <input type="checkbox" id="compareToggle" /> Enable Compare Mode
+        <input type="checkbox" id="compareToggle" /> <strong>Enable Compare Mode</strong> — paste baseline vs candidate
       </label>
     </div>
 
@@ -378,8 +378,8 @@
 
     <div class="card">
       <label>Trust &amp; privacy</label>
-      <p class="small trust">Analysis is <strong>AI-assisted opinion</strong>, not a certification or legal guarantee. Do not paste live production secrets; use redacted or staging samples when possible. Text is sent to <strong>your</strong> backend (Ollama locally or Claude if configured).</p>
-      <p class="footer" id="buildMeta">AI Security Copilot v1.2.0 · <span style="color:var(--primary)">Powered by Groq AI</span> · <span id="scanTime"></span></p>
+      <p class="small trust">Analysis is <strong>AI-assisted opinion, not a guarantee</strong>. Always verify critical findings. Do not paste live production secrets; use redacted or staging samples when possible. When AI is unavailable, deterministic security patterns still run locally.</p>
+      <p class="footer" id="buildMeta"></p>
     </div>
   </div>
 
@@ -401,8 +401,8 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
-    const APP_VERSION = "1.2.0";
-    const CLAUDE_MODEL = "claude-sonnet-4-20250514";
+    const APP_VERSION = "1.3.0";
+    const CLAUDE_MODEL = "groq-llama-3.1-8b";
     const SECURITY_SYSTEM_PROMPT = `You are an AI security analyst for teams shipping LLM products and autonomous agents.
 
 Analyze the pasted text for: prompt injection (direct/indirect), jailbreaks, data exfiltration or unsafe disclosure paths, secret/credential leaks, social engineering, improper output handling chain-of-trust issues, excessive agency / unsafe tool use, supply-chain hints, RAG poisoning or untrusted document abuse, system prompt leakage, misinformation pressure, and resource abuse or unbounded consumption.
@@ -468,7 +468,7 @@ Schema:
     let lastScanBundle = null;
     let lastRegressionDiff = null;
     let toastTimer = null;
-    const scanTimeEl = document.getElementById("scanTime");
+    const scanTimeEl = null; // Element doesn't exist in DOM, will check before using
     let scanStartTime = null;
 
     // GitHub OAuth Auth State
@@ -599,7 +599,10 @@ Schema:
         const div = document.createElement("div");
         div.className = "history-item";
         const strong = document.createElement("strong");
-        strong.textContent = `${scan.result_label || "—"} - ${scan.result_score}/100`;
+        // Handle both old schema (nested result) and new schema (flattened fields)
+        const label = scan.result_label || scan.result?.label || "—";
+        const score = scan.result_score ?? scan.result?.score ?? scan.score ?? "?";
+        strong.textContent = `${label} - ${score}/100`;
         div.appendChild(strong);
         div.appendChild(document.createElement("br"));
         const small = document.createElement("span");
@@ -627,7 +630,28 @@ Schema:
     // Initial auth check
     checkAuth();
 
-    if (buildMeta) buildMeta.textContent = `AI Agent Security Copilot v${APP_VERSION}`;
+    // Update footer with accurate info based on scan mode
+    function updateFooter(provider, fallback, heuristicOnly) {
+      if (!buildMeta) return;
+      let modeText = "";
+      if (heuristicOnly) modeText = " · Deterministic-only mode";
+      else if (fallback) modeText = " · AI + Rules (fallback)";
+      else modeText = " · AI + Rules mode";
+      buildMeta.textContent = `AI Security Copilot v${APP_VERSION}${modeText}`;
+    }
+
+    // Check URL for shared results on load (reuse existing urlParams)
+    const shareParam = urlParams.get('share');
+    if (shareParam) {
+      try {
+        const shareData = JSON.parse(atob(shareParam));
+        showToast(`Shared result: ${shareData.label} (${shareData.score}/100)`);
+      } catch (e) {
+        // Invalid share data, ignore
+      }
+    }
+
+    if (buildMeta) updateFooter(null, false, false);
 
     compareToggle.addEventListener("change", () => {
       compareWrap.classList.toggle("visible", compareToggle.checked);
@@ -648,8 +672,10 @@ Schema:
     });
 
     function getRiskLabel(score) {
-      if (score >= 70) return { text: "HIGH RISK", cls: "risk-high" };
-      if (score >= 35) return { text: "MEDIUM RISK", cls: "risk-med" };
+      // Coherent with backend: >= 75 = HIGH (BLOCK), >= 40 = MEDIUM (REVIEW), < 40 = LOW (ALLOW)
+      // Backend triage: critical findings or score >= 60 = BLOCK, score >= 40 = REVIEW, else ALLOW
+      if (score >= 75) return { text: "HIGH RISK", cls: "risk-high" };
+      if (score >= 40) return { text: "MEDIUM RISK", cls: "risk-med" };
       return { text: "LOW RISK", cls: "risk-low" };
     }
 
@@ -918,7 +944,8 @@ Schema:
       owaspRow.textContent = "";
       const owaspPlaceholder = document.createElement("span");
       owaspPlaceholder.className = "small";
-      owaspPlaceholder.textContent = "Run a scan to map OWASP categories.";
+      owaspPlaceholder.style.opacity = "0.7";
+      owaspPlaceholder.textContent = "Run a scan to see OWASP LLM Top 10 mapping. Security categories appear when patterns match.";
       owaspRow.appendChild(owaspPlaceholder);
       execSummary.style.display = "none";
       execSummary.textContent = "";
@@ -949,9 +976,9 @@ Schema:
       verdict.textContent = verdictText === "SAFER" ? "✅ SAFER" : verdictText === "RISKIER" ? "⚠️ RISKIER" : "➡️ UNCHANGED";
       verdict.style.color = verdictText === "SAFER" ? "var(--ok)" : verdictText === "RISKIER" ? "var(--danger)" : "var(--muted)";
       
-      // Scores
-      baselineScore.textContent = diff.triageBefore ? `${diff.triageBefore} (${diff.baseline?.score ?? "?"})` : (diff.baseline?.score ?? "?");
-      candidateScore.textContent = diff.triageAfter ? `${diff.triageAfter} (${diff.candidate?.score ?? "?"})` : (diff.candidate?.score ?? "?");
+      // Scores - show score and triage action together
+      baselineScore.textContent = `${diff.baseline?.score ?? "?"}/100 ${diff.baseline?.triage?.action ? '(' + diff.baseline.triage.action + ')' : ''}`;
+      candidateScore.textContent = `${diff.candidate?.score ?? "?"}/100 ${diff.candidate?.triage?.action ? '(' + diff.candidate.triage.action + ')' : ''}`;
       
       // Delta
       const delta = diff.scoreDelta;
@@ -1252,18 +1279,17 @@ Schema:
         riskScore.textContent = String(result.score);
         riskBadge.className = `pill ${labelToRender.cls}`;
         riskBadge.textContent = labelToRender.text;
-        scoreReason.textContent = result.score >= 70
-          ? "Immediate human review required before any action."
-          : result.score >= 35
-            ? "Proceed carefully. Add guardrails and approval checks."
-            : "No strong risk signals found, still keep baseline controls.";
+        scoreReason.textContent = result.score >= 75
+          ? "⚠️ High-risk content detected. Block and review before proceeding."
+          : result.score >= 40
+            ? "⚡ Medium risk: Review recommended. Check findings before deployment."
+            : "✅ Low risk: No significant security patterns detected. Standard precautions apply.";
         const provLabel = provider === "heuristic" ? "Deterministic" : provider === "groq+heuristic" ? "AI + Rules" : provider === "regression" ? "Regression Test" : provider === "groq" ? "Groq AI" : provider;
         const scanDuration = ((Date.now() - scanStartTime) / 1000).toFixed(1);
         providerLine.style.display = "block";
         const rid = requestId ? ` · Request ${requestId}` : "";
         const cmp = compareMode ? " · Compare mode" : "";
         providerLine.textContent = `Engine: ${provLabel}${model ? ` · ${model}` : ""}${cmp} · v${version}${rid} · ${scanDuration}s${fallback ? ' · FALLBACK MODE' : ''}${heuristicOnly ? ' · HEURISTIC ONLY' : ''}`;
-        if (scanTimeEl) scanTimeEl.textContent = `Last scan: ${scanDuration}s`;
         
         // Visual indicator for fallback/heuristic mode
         if (fallback || heuristicOnly) {
@@ -1272,6 +1298,9 @@ Schema:
         } else {
           riskBadge.style.border = "";
         }
+        
+        // Update footer with accurate mode info
+        updateFooter(provider, fallback, heuristicOnly);
         
         // Show regression results if in compare mode
         if (lastRegressionDiff) {
@@ -1344,7 +1373,7 @@ Schema:
         renderList(fixesList, [
           "Check that GROQ_API_KEY is set in Vercel environment variables.",
           "If the error persists, the Groq API may be down - try again in a few minutes.",
-          "Make sure you're scanning text under 200,000 characters."
+          "Make sure you're scanning text under 10,000 characters."
         ], "No fix suggestions.");
         renderList(redTeamList, [], "No follow-up probes.");
       } finally {

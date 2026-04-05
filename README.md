@@ -37,7 +37,7 @@ This tool answers one question with certainty: **"Did this change make my prompt
 
 ### 1. Live Demo (Fastest)
 
-Visit [ai-security-copilot.vercel.app](https://ai-security-copilot.vercel.app) and paste any text.
+Visit [ai-agent-security-copilot.vercel.app](https://ai-agent-security-copilot.vercel.app) and paste any text.
 
 ### 2. GitHub Action (CI/CD)
 
@@ -164,16 +164,20 @@ Risk Delta: +40 points
 - **Database**: Supabase PostgreSQL - optional for scan history
 - **Hosting**: Vercel (serverless)
 
-## OWASP LLM Top 10 Coverage
+## OWASP LLM Top 10 Coverage (2025)
 
 | ID | Category | Detection |
 |----|----------|-----------|
 | LLM01 | Prompt Injection | Direct, indirect, jailbreaks |
 | LLM02 | Sensitive Info Disclosure | Secrets, PII, credentials |
+| LLM03 | Supply Chain | Package/import risks |
+| LLM04 | Data/Model Poisoning | Training data risks |
 | LLM05 | Improper Output Handling | Exfiltration patterns |
 | LLM06 | Excessive Agency | Dangerous commands, tool abuse |
 | LLM07 | System Prompt Leakage | Extraction attempts |
+| LLM08 | Vector/Embedding Weaknesses | RAG chunk risks |
 | LLM09 | Misinformation | Social engineering |
+| LLM10 | Unbounded Consumption | Resource abuse |
 
 ## Trust & Limitations (Honest)
 

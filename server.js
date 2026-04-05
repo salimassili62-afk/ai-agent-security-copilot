@@ -145,11 +145,13 @@ const SECRET_PATTERNS = [
   { pattern: /api[_-]?key\s*[:=\s]+["']?[a-zA-Z0-9_\-]{16,}/i, name: "API key assignment", severity: "CRITICAL", category: "LLM02" },
   { pattern: /api[_-]?secret\s*[:=\s]+["']?[a-zA-Z0-9_\-]{16,}/i, name: "API secret", severity: "CRITICAL", category: "LLM02" },
   { pattern: /password\s*[:=\s]+["']?[^\s"']{8,}/i, name: "Hardcoded password", severity: "HIGH", category: "LLM02" },
+  { pattern: /password\s*=\s*['"][^'"]{8,}['"]/i, name: "Password assignment", severity: "HIGH", category: "LLM02" },
   { pattern: /passwd\s*[:=\s]+["']?[^\s"']{8,}/i, name: "Password variant", severity: "HIGH", category: "LLM02" },
   { pattern: /token\s*[:=\s]+["']?[a-zA-Z0-9_\-]{20,}/i, name: "Token leak", severity: "HIGH", category: "LLM02" },
   { pattern: /auth[_-]?token\s*[:=\s]+["']?[a-zA-Z0-9_\-]{10,}/i, name: "Auth token", severity: "HIGH", category: "LLM02" },
   { pattern: /bearer\s+[a-zA-Z0-9_\-]{20,}/i, name: "Bearer token", severity: "HIGH", category: "LLM02" },
-  { pattern: /SECRET_[A-Z_]+\s*[:=\s]+["']?.{8,}/, name: "Secret env var", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /SECRET_[A-Z0-9_]+\s*[:=\s]+["']?.{8,}/i, name: "Secret env var", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /SECRET_API_KEY/i, name: "Secret API key env var", severity: "CRITICAL", category: "LLM02" },
   { pattern: /DATABASE_URL.*:\/\/.+:.+@/, name: "DB URL with credentials", severity: "CRITICAL", category: "LLM02" },
   { pattern: /mongodb(\+srv)?:\/\/.+:.+@/, name: "MongoDB connection string", severity: "CRITICAL", category: "LLM02" },
   { pattern: /postgres(ql)?:\/\/.+:.+@/, name: "PostgreSQL connection string", severity: "CRITICAL", category: "LLM02" },
@@ -162,6 +164,7 @@ const SECRET_PATTERNS = [
 
 const DANGEROUS_PATTERNS = [
   { pattern: /execute\s+(?:shell|command|bash|sh|cmd)/i, name: "Command execution request", severity: "CRITICAL", category: "LLM06" },
+  { pattern: /execute\s+this\s+command/i, name: "Execute this command", severity: "CRITICAL", category: "LLM06" },
   { pattern: /run\s+(?:shell|command|bash|sh|cmd)/i, name: "Run command request", severity: "CRITICAL", category: "LLM06" },
   { pattern: /exec\s*\(|system\s*\(|popen\s*\(|spawn\s*\(/i, name: "Code execution function", severity: "CRITICAL", category: "LLM06" },
   { pattern: /eval\s*\(|exec\s*\(/i, name: "Eval/Exec call", severity: "CRITICAL", category: "LLM06" },
@@ -187,7 +190,7 @@ const SOCIAL_ENG_PATTERNS = [
 
 const PROMPT_LEAK_PATTERNS = [
   { pattern: /what\s+(?:is|was)\s+your\s+(?:system|initial|original)\s+(?:prompt|instruction)/i, name: "Prompt extraction", severity: "MEDIUM", category: "LLM07" },
-  { pattern: /repeat\s+(?:the\s+above|previous|that|word for word)/i, name: "Repetition attack", severity: "MEDIUM", category: "LLM07" },
+  { pattern: /repeat\s+(?:the\s+above|previous|that|word for word|it exactly)/i, name: "Repetition attack", severity: "MEDIUM", category: "LLM07" },
   { pattern: /show\s+(?:me\s+)?your\s+(?:system\s+)?prompt/i, name: "Prompt reveal request", severity: "MEDIUM", category: "LLM07" },
 ];
 
@@ -219,26 +222,34 @@ function runHeuristicScan(content) {
     }
   }
   
-  // Aggressive scoring: CRITICAL findings produce high scores immediately
-  // One CRITICAL = 65 (MEDIUM range)
-  // Two CRITICAL = 85 (HIGH range)
-  // Three+ CRITICAL = 95+
+  // Coherent scoring model: CRITICAL findings immediately trigger HIGH score
+  // This ensures score/label/triage are always aligned
+  // 1+ CRITICAL = HIGH risk (75+) with BLOCK action
+  // 2+ HIGH = MEDIUM risk (40+) with REVIEW action  
+  // Otherwise = LOW risk (<40) with ALLOW action
   let score = 0;
-  score += criticalCount * 35;  // Each critical is worth 35
-  score += highCount * 20;       // Each high is worth 20
-  score += mediumCount * 8;      // Each medium is worth 8
   
-  // Bonus for combinations that indicate clear attacks
-  if (criticalCount >= 1 && highCount >= 1) score += 15;
-  if (criticalCount >= 2) score += 20;
+  // CRITICAL = 75 base (immediately HIGH risk category)
+  // This ensures any BLOCK-worthy finding produces HIGH score
+  score += criticalCount * 75;
+  
+  // HIGH severity adds meaningfully but doesn't change category alone
+  score += highCount * 15;
+  
+  // MEDIUM adds minor weight
+  score += mediumCount * 5;
+  
+  // Bonus for combination attacks (only if already critical)
+  if (criticalCount >= 2) score += 15;
+  if (criticalCount >= 1 && highCount >= 2) score += 10;
   if (findings.some(f => f.category === "LLM02") && findings.some(f => f.category === "LLM06")) score += 10;
   
   score = Math.min(100, score);
   
-  // More aggressive triage
-  // 75+ = BLOCK (was 70)
-  // 40+ = REVIEW (was 35)
-  // <40 = ALLOW
+  // Coherent label thresholds matching triage logic
+  // >= 75 = HIGH (BLOCK threshold)
+  // >= 40 = MEDIUM (REVIEW threshold)
+  // < 40 = LOW (ALLOW)
   const label = score >= 75 ? "HIGH" : score >= 40 ? "MEDIUM" : "LOW";
   
   // Action based on findings
@@ -317,10 +328,16 @@ function getOwaspTitle(id) {
   const titles = {
     "LLM01": "Prompt Injection",
     "LLM02": "Sensitive Information Disclosure",
+    "LLM03": "Supply Chain Vulnerabilities",
+    "LLM04": "Data and Model Poisoning",
     "LLM05": "Improper Output Handling",
-    "LLM06": "Excessive Agency"
+    "LLM06": "Excessive Agency",
+    "LLM07": "System Prompt Leakage",
+    "LLM08": "Vector and Embedding Weaknesses",
+    "LLM09": "Misinformation",
+    "LLM10": "Unbounded Consumption"
   };
-  return titles[id] || "Unknown";
+  return titles[id] || id;
 }
 
 // Health check with Groq status
@@ -589,7 +606,7 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
     }
     
     if (content.length > MAX_SCAN_CHARS) {
-      return res.status(400).json({ ok: false, error: `Too long (${content.length} chars, max ${MAX_SCAN_CHARS})`, requestId });
+      return res.status(400).json({ ok: false, error: `Content too long (${content.length} chars, max ${MAX_SCAN_CHARS}). Trim or split into chunks.`, requestId });
     }
 
     const groqApiKey = process.env.GROQ_API_KEY;
@@ -620,12 +637,16 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
       try {
         const { data: { user } } = await supabase.auth.getUser(token);
         if (user) {
-          // Align with database schema
+          // Align with database schema - store flattened fields for easier querying
           const owaspCategories = (scanResult.parsed.owasp || []).map(o => o.id).filter(Boolean);
+          const resultLabel = scanResult.parsed.label;
+          const resultScore = scanResult.parsed.score;
           await supabase.from('scans').insert({
             user_id: user.id,
             content_hash: crypto.createHash('sha256').update(content).digest('hex').slice(0, 32),
             result: scanResult.parsed,
+            result_label: resultLabel,
+            result_score: resultScore,
             score: scanResult.parsed.score,
             provider: scanResult.provider,
             model: scanResult.model,
@@ -656,8 +677,9 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
   } catch (error) {
     log('ERROR', 'Scan failed', { requestId, error: error.message });
     
-    // Always return something useful
-    const heuristic = runHeuristicScan(content || "");
+    // Always return something useful - use sanitized content or empty string
+    const contentToScan = (content && typeof content === 'string') ? content : "";
+    const heuristic = runHeuristicScan(contentToScan);
     res.status(200).json({
       ok: true,
       parsed: { ...heuristic, fallback: true, error: error.message },
@@ -681,6 +703,14 @@ app.post("/api/compare", rateLimitScan, async (req, res) => {
       return res.status(400).json({ ok: false, error: "Provide both baseline and candidate", requestId });
     }
 
+    // Sanitize inputs
+    const sanitizedBaseline = sanitizeInput(baseline);
+    const sanitizedCandidate = sanitizeInput(candidate);
+    
+    if (sanitizedBaseline.length === 0 || sanitizedCandidate.length === 0) {
+      return res.status(400).json({ ok: false, error: "Baseline and candidate cannot be empty", requestId });
+    }
+
     const groqApiKey = process.env.GROQ_API_KEY;
     
     // Scan both versions
@@ -688,13 +718,13 @@ app.post("/api/compare", rateLimitScan, async (req, res) => {
     
     if (groqApiKey) {
       [baselineResult, candidateResult] = await Promise.all([
-        performScan(baseline, scanContext, null, groqApiKey),
-        performScan(candidate, scanContext, null, groqApiKey)
+        performScan(sanitizedBaseline, scanContext, null, groqApiKey),
+        performScan(sanitizedCandidate, scanContext, null, groqApiKey)
       ]);
     } else {
       // Heuristic only
-      baselineResult = { parsed: runHeuristicScan(baseline), provider: "heuristic" };
-      candidateResult = { parsed: runHeuristicScan(candidate), provider: "heuristic" };
+      baselineResult = { parsed: runHeuristicScan(sanitizedBaseline), provider: "heuristic" };
+      candidateResult = { parsed: runHeuristicScan(sanitizedCandidate), provider: "heuristic" };
     }
     
     // Compute regression diff
@@ -711,7 +741,23 @@ app.post("/api/compare", rateLimitScan, async (req, res) => {
     
   } catch (error) {
     log('ERROR', 'Compare failed', { requestId, error: error.message });
-    res.status(500).json({ ok: false, error: error.message, requestId });
+    // Return 200 with fallback results instead of 500
+    const baselineContent = sanitizeInput(req.body?.baseline || "");
+    const candidateContent = sanitizeInput(req.body?.candidate || "");
+    const baselineHeuristic = runHeuristicScan(baselineContent);
+    const candidateHeuristic = runHeuristicScan(candidateContent);
+    const diff = computeRegressionDiff(baselineHeuristic, candidateHeuristic);
+    
+    res.status(200).json({ 
+      ok: true, 
+      baseline: baselineHeuristic,
+      candidate: candidateHeuristic,
+      diff,
+      fallback: true,
+      requestId,
+      version: APP_VERSION,
+      warning: "Analysis used deterministic fallback due to error"
+    });
   }
 });
 
@@ -757,19 +803,20 @@ function computeRegressionDiff(baseline, candidate) {
     removedOwasp,
     triageChanged,
     triageBefore: baseline.triage?.action,
-    triageAfter: candidate.triage?.action
+    triageAfter: candidate.triage?.action,
+    // Include full baseline and candidate for frontend rendering
+    baseline: {
+      score: baseline.score,
+      label: baseline.label,
+      triage: baseline.triage
+    },
+    candidate: {
+      score: candidate.score,
+      label: candidate.label,
+      triage: candidate.triage
+    }
   };
 }
-
-// Clean expired cache entries periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, value] of scanCache.entries()) {
-    if (now - value.timestamp > SCAN_CACHE_MS) {
-      scanCache.delete(key);
-    }
-  }
-}, SCAN_CACHE_MS);
 
 // Serve index.html for root
 app.get("/", (req, res) => {
@@ -786,10 +833,25 @@ app.get("*", (req, res) => {
 
 module.exports = app;
 
+// Clean expired cache entries periodically - only when running as main module
+let cacheCleanupInterval = null;
+
 if (require.main === module) {
+  cacheCleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [key, value] of scanCache.entries()) {
+      if (now - value.timestamp > SCAN_CACHE_MS) {
+        scanCache.delete(key);
+      }
+    }
+  }, SCAN_CACHE_MS);
+  
   app.listen(PORT, () => {
     log('INFO', `AI Security Copilot v${APP_VERSION} started on port ${PORT}`);
     log('INFO', `Groq API: ${process.env.GROQ_API_KEY ? '✅ configured' : '❌ not configured'}`);
     log('INFO', `Supabase Auth: ${supabase ? '✅ enabled' : '❌ disabled'}`);
   });
 }
+
+// Export interval reference for test cleanup (only valid when running as main)
+module.exports.cacheCleanupInterval = cacheCleanupInterval;

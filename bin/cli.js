@@ -82,17 +82,19 @@ function request(path, options = {}) {
 
 function formatSummary(result) {
   const r = result.parsed || result;
+  const riskLevel = r.score >= 75 ? 'HIGH' : r.score >= 40 ? 'MEDIUM' : 'LOW';
+  const riskIcon = r.score >= 75 ? '🔴' : r.score >= 40 ? '🟡' : '🟢';
   return `
 ╔════════════════════════════════════════════════════════╗
-║  SECURITY SCAN RESULT                                  ║
+║  AI SECURITY SCAN RESULT                               ║
 ╠════════════════════════════════════════════════════════╣
-  Risk Score:  ${r.score}/100 ${r.label}
-  Triage:      ${r.triage?.action || 'REVIEW'}
+  ${riskIcon} Risk Level: ${riskLevel} (${r.score}/100)
+  🛡️  Triage:    ${r.triage?.action || 'REVIEW'} — ${r.triage?.rationale || 'Review findings'}
   
   Summary:
-  ${r.summary}
+  ${r.summary || 'No significant security patterns detected.'}
   
-  ${r.reasons?.length ? 'Findings:\n  • ' + r.reasons.join('\n  • ') : 'No significant issues found.'}
+  ${r.reasons?.length ? 'Findings:\n  • ' + r.reasons.join('\n  • ') : '✓ No significant issues found.'}
   
   ${r.owasp?.length ? 'OWASP Categories: ' + r.owasp.map(o => o.id).join(', ') : ''}
 ╚════════════════════════════════════════════════════════╝
@@ -233,9 +235,21 @@ async function main() {
       result = await compareFiles(files[0], files[1], options);
       output = formatCompare(result, path.basename(files[0]), path.basename(files[1]));
       
-      // Exit code based on regression
+      // Exit code based on regression - only exit after output is fully written
       const exitCode = result.diff.verdict === 'RISKIER' ? 1 : 0;
-      console.log(output);
+      
+      switch (options.output) {
+        case 'json':
+          console.log(JSON.stringify(result, null, 2));
+          break;
+        case 'markdown':
+          console.log(formatMarkdown(result, 'compare'));
+          break;
+        case 'summary':
+        default:
+          console.log(output);
+      }
+      
       process.exit(exitCode);
       
     } else {

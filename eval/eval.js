@@ -10,9 +10,12 @@
 
 const http = require('http');
 const corpus = require('./corpus');
+const { spawn } = require('child_process');
+const path = require('path');
 
 const API_URL = process.env.AI_SECURITY_API || 'http://localhost:3000';
 const TEST_TIMEOUT = 30000;
+const MAX_STARTUP_TIME = 10000;
 
 const metrics = {
   total: corpus.length,
@@ -23,6 +26,54 @@ const metrics = {
   fallbackRate: 0,
   heuristicOnlyRate: 0
 };
+
+let serverProcess = null;
+
+function startServer() {
+  return new Promise((resolve, reject) => {
+    const serverPath = path.join(__dirname, '..', 'server.js');
+    serverProcess = spawn('node', [serverPath], {
+      stdio: 'pipe',
+      env: { ...process.env, PORT: '3000' }
+    });
+    
+    serverProcess.stdout.on('data', (data) => {
+      const line = data.toString();
+      if (line.includes('started on port')) {
+        console.log('🚀 Test server started');
+        resolve();
+      }
+    });
+    
+    serverProcess.stderr.on('data', (data) => {
+      // Ignore stderr during startup
+    });
+    
+    serverProcess.on('error', reject);
+    
+    setTimeout(() => {
+      if (serverProcess) resolve(); // Assume started after timeout
+    }, MAX_STARTUP_TIME);
+  });
+}
+
+function stopServer() {
+  if (serverProcess) {
+    serverProcess.kill();
+    serverProcess = null;
+    console.log('🛑 Stopped test server');
+  }
+  // Clear any dangling intervals
+  try {
+    const app = require('../server.js');
+    if (app.cacheCleanupInterval) {
+      clearInterval(app.cacheCleanupInterval);
+      console.log('🧹 Cleared cache cleanup interval');
+    }
+  } catch (e) {
+    // Ignore errors during cleanup
+  }
+}
 
 function request(path, body) {
   return new Promise((resolve, reject) => {
@@ -106,47 +157,62 @@ async function runEval() {
   console.log(`API: ${API_URL}`);
   console.log(`Cases: ${corpus.length}\n`);
   
+  // Start test server if using default URL
+  const shouldManageServer = !process.env.AI_SECURITY_API;
+  if (shouldManageServer) {
+    await startServer();
+    // Give server a moment to fully initialize
+    await new Promise(r => setTimeout(r, 500));
+  }
+  
   const results = [];
   let totalLatency = 0;
   let fallbackCount = 0;
   let heuristicCount = 0;
   
-  for (const testCase of corpus) {
-    const startTime = Date.now();
-    
-    try {
-      const res = await request('/api/scans', { content: testCase.content });
-      const evaluation = evaluateResult(testCase, res.body, startTime);
+  try {
+    for (const testCase of corpus) {
+      const startTime = Date.now();
       
-      totalLatency += evaluation.latency;
-      if (evaluation.fallback) fallbackCount++;
-      if (evaluation.heuristicOnly) heuristicCount++;
-      
-      // Track by category
-      if (!metrics.byCategory[testCase.category]) {
-        metrics.byCategory[testCase.category] = { total: 0, passed: 0 };
-      }
-      metrics.byCategory[testCase.category].total++;
-      if (evaluation.passed) {
-        metrics.byCategory[testCase.category].passed++;
-        metrics.passed++;
-      } else {
+      try {
+        const res = await request('/api/scans', { content: testCase.content });
+        const evaluation = evaluateResult(testCase, res.body, startTime);
+        
+        totalLatency += evaluation.latency;
+        if (evaluation.fallback) fallbackCount++;
+        if (evaluation.heuristicOnly) heuristicCount++;
+        
+        // Track by category
+        if (!metrics.byCategory[testCase.category]) {
+          metrics.byCategory[testCase.category] = { total: 0, passed: 0 };
+        }
+        metrics.byCategory[testCase.category].total++;
+        if (evaluation.passed) {
+          metrics.byCategory[testCase.category].passed++;
+          metrics.passed++;
+        } else {
+          metrics.failed++;
+        }
+        
+        const icon = evaluation.passed ? '✅' : '❌';
+        console.log(`${icon} ${testCase.id} (${testCase.category}): ${evaluation.score}/100 ${evaluation.label} - ${evaluation.latency}ms`);
+        
+        if (!evaluation.passed) {
+          evaluation.failures.forEach(f => console.log(`   → ${f}`));
+          console.log(`   Score: ${evaluation.score}, Expected: ${testCase.minScore || 0}-${testCase.maxScore || 100}`);
+        }
+        
+        results.push({ id: testCase.id, ...evaluation });
+        
+      } catch (error) {
+        console.log(`❌ ${testCase.id}: ERROR - ${error.message}`);
         metrics.failed++;
+        results.push({ id: testCase.id, passed: false, error: error.message });
       }
-      
-      const icon = evaluation.passed ? '✅' : '❌';
-      console.log(`${icon} ${testCase.id} (${testCase.category}): ${evaluation.score}/100 ${evaluation.label} - ${evaluation.latency}ms`);
-      
-      if (!evaluation.passed) {
-        evaluation.failures.forEach(f => console.log(`   → ${f}`));
-      }
-      
-      results.push({ id: testCase.id, ...evaluation });
-      
-    } catch (error) {
-      console.log(`❌ ${testCase.id}: ERROR - ${error.message}`);
-      metrics.failed++;
-      results.push({ id: testCase.id, passed: false, error: error.message });
+    }
+  } finally {
+    if (shouldManageServer) {
+      stopServer();
     }
   }
   
