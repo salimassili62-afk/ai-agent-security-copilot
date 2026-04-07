@@ -383,58 +383,6 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// Auth endpoints (minimal)
-app.get("/api/auth/github", async (req, res) => {
-  if (!supabase) return res.status(503).json({ ok: false, error: "Auth not available" });
-  try {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'github',
-      options: { redirectTo: `${req.protocol}://${req.get('host')}/auth/callback` }
-    });
-    if (error) throw error;
-    res.json({ ok: true, url: data.url });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-app.get("/auth/callback", (req, res) => {
-  const { code, error } = req.query;
-  if (error || !code) return res.redirect('/?auth=failed');
-  res.redirect(`/?code=${code}&provider=github`);
-});
-
-app.post("/api/auth/session", async (req, res) => {
-  if (!supabase) return res.status(503).json({ ok: false, error: "Auth not available" });
-  try {
-    const { code } = req.body || {};
-    if (!code) return res.status(400).json({ ok: false, error: "Missing code" });
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) throw error;
-    res.json({ ok: true, user: data.user, session: { access_token: data.session.access_token } });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-app.get("/api/auth/user", async (req, res) => {
-  if (!supabase) return res.json({ ok: true, user: null });
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) return res.json({ ok: true, user: null });
-  try {
-    const token = authHeader.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error) throw error;
-    res.json({ ok: true, user });
-  } catch (e) {
-    res.json({ ok: true, user: null });
-  }
-});
-
-app.post("/api/auth/logout", async (req, res) => {
-  res.json({ ok: true });
-});
-
 // Scan history endpoints (authenticated users only)
 app.get("/api/scans", async (req, res) => {
   if (!supabase) {
