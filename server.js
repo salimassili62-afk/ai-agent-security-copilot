@@ -7,7 +7,7 @@ const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.3.1";
 
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";

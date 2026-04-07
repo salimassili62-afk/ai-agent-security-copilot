@@ -24,7 +24,7 @@ function getRequestModule(url) {
 
 function showHelp() {
   console.log(`
-AI Security Copilot CLI v1.3.0
+AI Security Copilot CLI v1.3.1
 
 Usage:
   ai-security-scan [options] <file>
@@ -125,7 +125,7 @@ ${r.owasp.map(o => `- **${o.id}:** ${o.title} (${o.severity})`).join('\n')}
 ` : ''}
 
 ---
-*Scanned with AI Security Copilot v${result.version || '1.3.0'}*
+*Scanned with AI Security Copilot v${result.version || '1.3.1'}*
 `;
 }
 
