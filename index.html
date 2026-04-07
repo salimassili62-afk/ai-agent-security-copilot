@@ -528,6 +528,12 @@ Schema:
         const data = await res.json();
         if (data.url) {
           window.location.href = data.url;
+        } else if (data.setupRequired) {
+          showToast("Sign in requires Supabase setup. See README for configuration.");
+          // Show a helpful dialog
+          setTimeout(() => {
+            alert("🔧 Authentication Setup Required\n\nTo enable sign-in:\n1. Create a Supabase project at supabase.com\n2. Add SUPABASE_URL and SUPABASE_SERVICE_KEY to environment variables\n3. Enable GitHub OAuth in Supabase Auth settings\n\nUntil then, all features work in Guest mode with localStorage history.");
+          }, 100);
         } else {
           showToast("GitHub login not available");
         }

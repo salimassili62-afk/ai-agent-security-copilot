@@ -720,6 +720,28 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
   }
 });
 
+// Auth endpoints - lightweight implementation
+app.get("/api/auth/github", (req, res) => {
+  // Return info that GitHub auth requires Supabase setup
+  res.json({ 
+    ok: false, 
+    error: "GitHub OAuth requires Supabase configuration. Add SUPABASE_URL and SUPABASE_SERVICE_KEY env vars.",
+    setupRequired: true 
+  });
+});
+
+app.post("/api/auth/session", (req, res) => {
+  res.status(400).json({ ok: false, error: "Auth requires Supabase configuration" });
+});
+
+app.get("/api/auth/user", (req, res) => {
+  res.json({ user: null });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  res.json({ ok: true });
+});
+
 // Compare endpoint for regression testing
 app.post("/api/compare", rateLimitScan, async (req, res) => {
   const requestId = res.locals.requestId;
@@ -849,6 +871,15 @@ function computeRegressionDiff(baseline, candidate) {
 // Serve index.html for root
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
+});
+
+// Serve pricing.html
+app.get("/pricing", (req, res) => {
+  res.sendFile(path.join(__dirname, "pricing.html"));
+});
+
+app.get("/pricing.html", (req, res) => {
+  res.sendFile(path.join(__dirname, "pricing.html"));
 });
 
 // Catch-all for SPA
