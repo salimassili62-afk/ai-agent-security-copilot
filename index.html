@@ -220,7 +220,8 @@
     <div class="auth-bar">
       <span id="authStatus"></span>
       <a href="pricing.html" class="btn-ghost" style="margin-right: 8px; text-decoration: none; display: inline-block; padding: 6px 12px; font-size: 13px;">Pricing</a>
-      <button class="btn-ghost" id="loginBtn" style="display:none;">Sign in with GitHub</button>
+      <span class="guest-badge" id="guestBadge" style="display:none; background: var(--border); color: var(--muted); padding: 4px 10px; border-radius: 999px; font-size: 12px; margin-right: 8px;">👤 Guest</span>
+      <button class="btn-ghost" id="loginBtn" style="display:none; font-size: 13px;">Sign in 🔜</button>
       <button class="btn-ghost" id="logoutBtn" style="display:none;">Logout</button>
     </div>
     <h1>AI Security Copilot</h1>
@@ -505,16 +506,16 @@ Schema:
       currentUser = null;
       accessToken = null;
       localStorage.removeItem('access_token');
-      authStatus.innerHTML = '<span class="small">Guest mode — <a href="#" id="enableCloudLink" style="color:var(--primary)">sign in to save scans</a></span>';
+      const guestBadge = document.getElementById('guestBadge');
+      if (guestBadge) guestBadge.style.display = 'inline-block';
+      authStatus.innerHTML = '';
       loginBtn.style.display = 'inline-block';
       logoutBtn.style.display = 'none';
-      document.getElementById('enableCloudLink')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        startGitHubLogin();
-      });
     }
 
     function showLoggedInMode() {
+      const guestBadge = document.getElementById('guestBadge');
+      if (guestBadge) guestBadge.style.display = 'none';
       const avatar = currentUser?.user_metadata?.avatar_url || '';
       const name = currentUser?.user_metadata?.full_name || currentUser?.email || 'User';
       authStatus.innerHTML = `<span class="user-info"><img src="${avatar}" alt="" onerror="this.style.display='none'" /> ${name}</span>`;
@@ -526,19 +527,27 @@ Schema:
       try {
         const res = await fetch("/api/auth/github");
         const data = await res.json();
-        if (data.url) {
+        // Only redirect if we have a valid URL - prevents "Invalid Redirect URL" errors
+        if (data.url && data.url.startsWith('http')) {
           window.location.href = data.url;
         } else if (data.setupRequired) {
-          showToast("Sign in requires Supabase setup. See README for configuration.");
-          // Show a helpful dialog
-          setTimeout(() => {
-            alert("🔧 Authentication Setup Required\n\nTo enable sign-in:\n1. Create a Supabase project at supabase.com\n2. Add SUPABASE_URL and SUPABASE_SERVICE_KEY to environment variables\n3. Enable GitHub OAuth in Supabase Auth settings\n\nUntil then, all features work in Guest mode with localStorage history.");
-          }, 100);
+          // Show helpful setup dialog instead of broken redirect
+          const steps = data.setupSteps ? data.setupSteps.join('\n') : '';
+          showToast("Sign in coming soon — using Guest mode for now");
+          alert(`🔐 Sign In — Coming Soon
+
+Authentication is not yet configured for this deployment.
+All features work in Guest mode with local browser storage.
+
+${steps ? '\nTo enable sign-in:\n' + steps : ''}
+
+✅ Your scans are saved locally and will persist in this browser.`);
         } else {
-          showToast("GitHub login not available");
+          showToast("Sign in not available — using Guest mode");
         }
       } catch (e) {
-        showToast("Failed to start GitHub login");
+        showToast("Sign in temporarily unavailable");
+        console.log("Auth error:", e);
       }
     }
 

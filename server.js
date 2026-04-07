@@ -720,18 +720,27 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
   }
 });
 
-// Auth endpoints - lightweight implementation
+// Auth endpoints - disabled until fully configured
 app.get("/api/auth/github", (req, res) => {
-  // Return info that GitHub auth requires Supabase setup
+  // Return info that auth requires proper setup
+  // This prevents the "Invalid Redirect URL" GitHub error
   res.json({ 
     ok: false, 
-    error: "GitHub OAuth requires Supabase configuration. Add SUPABASE_URL and SUPABASE_SERVICE_KEY env vars.",
-    setupRequired: true 
+    url: null,  // Explicitly null to prevent redirect
+    error: "GitHub OAuth not fully configured. See setup guide.",
+    setupRequired: true,
+    setupSteps: [
+      "1. Create Supabase project at supabase.com",
+      "2. Add SUPABASE_URL and SUPABASE_SERVICE_KEY env vars",
+      "3. Enable GitHub OAuth in Supabase Auth > Providers",
+      "4. Set callback URL in GitHub OAuth app to: https://your-app.vercel.app/api/auth/callback",
+      "5. Add your Vercel URL to allowed redirect URLs in Supabase"
+    ]
   });
 });
 
 app.post("/api/auth/session", (req, res) => {
-  res.status(400).json({ ok: false, error: "Auth requires Supabase configuration" });
+  res.status(400).json({ ok: false, error: "Auth requires Supabase configuration", setupRequired: true });
 });
 
 app.get("/api/auth/user", (req, res) => {
