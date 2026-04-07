@@ -7,7 +7,7 @@ const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const APP_VERSION = "2.0.0";
+const APP_VERSION = "2.3.0";
 
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
@@ -179,8 +179,8 @@ const DANGEROUS_PATTERNS = [
   { pattern: /delete\s+(?:all|everything|files?|database)/i, name: "Mass deletion", severity: "CRITICAL", category: "LLM06" },
   { pattern: /drop\s+(?:table|database|schema)/i, name: "Database destruction", severity: "CRITICAL", category: "LLM06" },
   { pattern: /truncate\s+table/i, name: "Table truncation", severity: "HIGH", category: "LLM06" },
-  { pattern: /chmod\s+777|chmod\s+-R\s+777|chmod\s+666/i, name: "Permission escalation", severity: "HIGH", category: "LLM06" },
   { pattern: /sudo|su\s+-|root\s+access/i, name: "Privilege escalation", severity: "HIGH", category: "LLM06" },
+  { pattern: /chmod\s+777|chmod\s+-R\s+777|chmod\s+666/i, name: "Permission escalation", severity: "HIGH", category: "LLM06" },
   { pattern: /exfiltrate|exfil|data\s+extraction/i, name: "Data exfiltration", severity: "CRITICAL", category: "LLM05" },
   { pattern: /export\s+(?:all|customer|user|data|records)/i, name: "Bulk data export", severity: "HIGH", category: "LLM05" },
   { pattern: /send\s+(?:all|customer|user|data|file|record)/i, name: "Data transmission", severity: "HIGH", category: "LLM05" },
@@ -190,6 +190,8 @@ const DANGEROUS_PATTERNS = [
   { pattern: /curl.*http|wget.*http/i, name: "HTTP exfiltration", severity: "HIGH", category: "LLM05" },
   { pattern: /base64.*pastebin|pastebin.*base64/i, name: "Encoded exfiltration via paste service", severity: "HIGH", category: "LLM05" },
   { pattern: /encode.*base64|base64.*encode/i, name: "Encoding for exfil", severity: "MEDIUM", category: "LLM05" },
+  { pattern: /mkfifo|nc\s+-e|\/bin\/sh\s+-i/i, name: "Reverse shell attempt", severity: "CRITICAL", category: "LLM06" },
+  { pattern: /data\s+exfiltration|exfil\s+data/i, name: "Data exfiltration attempt", severity: "CRITICAL", category: "LLM05" },
 ];
 
 const SOCIAL_ENG_PATTERNS = [

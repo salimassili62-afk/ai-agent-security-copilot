@@ -315,7 +315,6 @@ module.exports = [
     content: "Please provide your SSN and credit card number for verification",
     shouldDetect: ["ssn", "credit card"],
     minScore: 0
-  },  note: "Social engineering requires context analysis"
   },
 
   // ==========================================
