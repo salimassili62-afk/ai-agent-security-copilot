@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pricing — AI Security Copilot</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #111a2e;
+      --muted: #95a3c7;
+      --text: #e9eeff;
+      --primary: #4f7cff;
+      --warn: #ffb020;
+      --danger: #ff5d5d;
+      --ok: #19c37d;
+      --border: #243354;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+      line-height: 1.5;
+    }
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 24px 16px 56px;
+    }
+    h1 { margin: 0 0 6px; font-size: 28px; }
+    .sub { color: var(--muted); margin: 0 0 24px; }
+    .back { color: var(--primary); text-decoration: none; font-size: 14px; }
+    .back:hover { text-decoration: underline; }
+    
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-top: 24px;
+    }
+    .plan {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      position: relative;
+    }
+    .plan.popular {
+      border-color: var(--primary);
+      box-shadow: 0 0 20px rgba(79, 124, 255, 0.15);
+    }
+    .badge {
+      position: absolute;
+      top: -10px;
+      right: 16px;
+      background: var(--primary);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 999px;
+    }
+    .plan h2 { margin: 0 0 8px; font-size: 20px; }
+    .price { font-size: 36px; font-weight: 800; margin: 8px 0; }
+    .price span { font-size: 16px; font-weight: 400; color: var(--muted); }
+    .desc { color: var(--muted); font-size: 14px; margin-bottom: 16px; }
+    
+    ul.features {
+      list-style: none;
+      padding: 0;
+      margin: 16px 0;
+    }
+    ul.features li {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    ul.features li:last-child { border-bottom: none; }
+    ul.features li::before {
+      content: "✓";
+      color: var(--ok);
+      font-weight: bold;
+    }
+    ul.features li.missing::before {
+      content: "—";
+      color: var(--muted);
+    }
+    ul.features li.missing { color: var(--muted); }
+    
+    button, .btn {
+      display: block;
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      padding: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    
+    .trust-bar {
+      margin-top: 40px;
+      padding: 20px;
+      background: rgba(79, 124, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      text-align: center;
+    }
+    .trust-bar p { margin: 0; color: var(--muted); font-size: 14px; }
+    
+    .faq {
+      margin-top: 40px;
+    }
+    .faq h2 { font-size: 20px; margin-bottom: 16px; }
+    .faq-item {
+      margin-bottom: 16px;
+      padding: 16px;
+      background: var(--panel);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    .faq-item strong { display: block; margin-bottom: 8px; color: var(--text); }
+    .faq-item p { margin: 0; color: var(--muted); font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a href="/" class="back">← Back to Scanner</a>
+    <h1 style="margin-top: 16px;">Pricing</h1>
+    <p class="sub">Security regression testing for teams of all sizes. Start free, upgrade when you need more.</p>
+    
+    <div class="pricing-grid">
+      <!-- Free Plan -->
+      <div class="plan">
+        <h2>Free</h2>
+        <div class="price">$0 <span>/ month</span></div>
+        <p class="desc">For individuals and small projects getting started with prompt security.</p>
+        
+        <ul class="features">
+          <li>60 scans per 15 minutes</li>
+          <li>Deterministic security rules</li>
+          <li>OWASP LLM Top 10 mapping</li>
+          <li>Basic regression testing</li>
+          <li>Local browser history</li>
+          <li class="missing">No AI enhancement</li>
+          <li class="missing">No cloud sync</li>
+          <li class="missing">No team features</li>
+        </ul>
+        
+        <a href="/" class="btn btn-ghost">Get Started</a>
+      </div>
+      
+      <!-- Pro Plan -->
+      <div class="plan popular">
+        <span class="badge">POPULAR</span>
+        <h2>Pro</h2>
+        <div class="price">$12 <span>/ month</span></div>
+        <p class="desc">For developers and small teams who need AI-powered analysis and history.</p>
+        
+        <ul class="features">
+          <li>Everything in Free, plus:</li>
+          <li>AI + Security Rules (Groq powered)</li>
+          <li>Unlimited scans</li>
+          <li>Cloud scan history</li>
+          <li>GitHub integration</li>
+          <li>Priority support</li>
+          <li>Export reports (Markdown, JSON)</li>
+        </ul>
+        
+        <button class="btn btn-primary" onclick="showComingSoon()">Upgrade to Pro</button>
+      </div>
+      
+      <!-- Team Plan -->
+      <div class="plan">
+        <h2>Team</h2>
+        <div class="price">$49 <span>/ month</span></div>
+        <p class="desc">For engineering teams who need collaboration and CI/CD integration.</p>
+        
+        <ul class="features">
+          <li>Everything in Pro, plus:</li>
+          <li>Up to 10 team members</li>
+          <li>Shared scan history</li>
+          <li>GitHub Action (private repos)</li>
+          <li>API access</li>
+          <li>Webhook notifications</li>
+          <li>Dedicated support</li>
+        </ul>
+        
+        <button class="btn btn-ghost" onclick="showComingSoon()">Contact Sales</button>
+      </div>
+    </div>
+    
+    <div class="trust-bar">
+      <p>🔒 All plans include deterministic security rules that work even when AI is unavailable. No hidden fees. Cancel anytime.</p>
+    </div>
+    
+    <div class="faq">
+      <h2>Frequently Asked Questions</h2>
+      
+      <div class="faq-item">
+        <strong>What's the difference between Free and Pro?</strong>
+        <p>Free includes all deterministic security rules and basic scanning. Pro adds AI-powered analysis via Groq, unlimited scans, cloud history, and GitHub integration. The AI provides more nuanced analysis and better false-positive detection.</p>
+      </div>
+      
+      <div class="faq-item">
+        <strong>Do I need a Groq API key?</strong>
+        <p>If you're on the Free plan, no — deterministic rules work without any API key. For Pro/Team, we handle the Groq integration for you. If you want to self-host with your own Groq key, that's also supported.</p>
+      </div>
+      
+      <div class="faq-item">
+        <strong>Is my data secure?</strong>
+        <p>Yes. Scans are processed in memory and not permanently stored unless you're signed in and on a paid plan. We don't train on your data. For sensitive data, use redacted or staging samples.</p>
+      </div>
+      
+      <div class="faq-item">
+        <strong>Can I use this in CI/CD?</strong>
+        <p>Yes! The GitHub Action is available for all plans. Free plan works great for public repos. Team plan includes private repo support and API access for custom integrations.</p>
+      </div>
+      
+      <div class="faq-item">
+        <strong>What happens if I hit the rate limit?</strong>
+        <p>Free plan allows 60 scans per 15 minutes. If you need more, upgrade to Pro for unlimited scans. Rate limits help us prevent abuse and keep the service fast for everyone.</p>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    function showComingSoon() {
+      alert('Billing integration coming soon. For now, all features are available in the free tier. Follow the project on GitHub for updates.');
+    }
+  </script>
+</body>
+</html>

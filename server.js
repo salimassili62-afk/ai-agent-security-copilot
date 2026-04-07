@@ -124,20 +124,25 @@ function getCacheKey(content, scanContext, compareBaseline) {
 // ============================================
 
 const INJECTION_PATTERNS = [
-  { pattern: /ignore\s+(?:previous|all|the)\s+(?:instruction|rule|prompt)/i, name: "Instruction override", severity: "CRITICAL", category: "LLM01" },
-  { pattern: /disregard\s+(?:previous|all|the)\s+(?:instruction|rule|prompt)/i, name: "Disregard instructions", severity: "CRITICAL", category: "LLM01" },
-  { pattern: /forget\s+(?:everything|your|previous|all)\s+(?:instruction|rule|prompt)/i, name: "Forget instructions", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /ignore\s+(?:previous|all|the)?\s*(?:instruction|rule|prompt|rules)/i, name: "Instruction override", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /disregard\s+(?:previous|all|the)?\s*(?:instruction|rule|prompt|rules)/i, name: "Disregard instructions", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /forget\s+(?:everything|your|previous|all)?\s*(?:instruction|rule|prompt|rules)/i, name: "Forget instructions", severity: "CRITICAL", category: "LLM01" },
   { pattern: /system\s*:\s*/i, name: "System prompt injection", severity: "CRITICAL", category: "LLM01" },
   { pattern: /developer\s*:\s*/i, name: "Developer role injection", severity: "CRITICAL", category: "LLM01" },
   { pattern: /\[\s*system\s*\]|\(\s*system\s*\)/i, name: "System tag injection", severity: "HIGH", category: "LLM01" },
   { pattern: /you are now\s+\w+|you are\s+\w+\s+mode/i, name: "Role assignment", severity: "HIGH", category: "LLM01" },
   { pattern: /DAN|do anything now/i, name: "Jailbreak pattern (DAN)", severity: "HIGH", category: "LLM01" },
   { pattern: /jailbreak|bypass|circumvent/i, name: "Jailbreak attempt", severity: "HIGH", category: "LLM01" },
+  { pattern: /pretend you are|act as|roleplay as/i, name: "Roleplay injection", severity: "HIGH", category: "LLM01" },
+  { pattern: /new instruction|override.*instruction/i, name: "Override attempt", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /from now on you|starting now you/i, name: "Behavior override", severity: "HIGH", category: "LLM01" },
+  { pattern: /i'm the developer|i am the developer/i, name: "Developer impersonation", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /ignore safety|ignore ethics/i, name: "Safety override", severity: "CRITICAL", category: "LLM01" },
 ];
 
 const SECRET_PATTERNS = [
-  { pattern: /sk-[a-zA-Z0-9]{48,}/i, name: "OpenAI API key (sk-)", severity: "CRITICAL", category: "LLM02" },
-  { pattern: /sk-[a-zA-Z0-9]{20,}/i, name: "OpenAI key pattern", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /sk-[a-zA-Z0-9]{48,}/i, name: "OpenAI API key (sk-...)", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /sk-[a-zA-Z0-9]{20,}/i, name: "OpenAI API key pattern", severity: "CRITICAL", category: "LLM02" },
   { pattern: /AKIA[0-9A-Z]{16}/, name: "AWS access key (AKIA)", severity: "CRITICAL", category: "LLM02" },
   { pattern: /ASIA[0-9A-Z]{16}/, name: "AWS session key (ASIA)", severity: "CRITICAL", category: "LLM02" },
   { pattern: /BEGIN (RSA|DSA|EC|OPENSSH|PGP) PRIVATE KEY/, name: "Private key block", severity: "CRITICAL", category: "LLM02" },
@@ -174,12 +179,15 @@ const DANGEROUS_PATTERNS = [
   { pattern: /drop\s+(?:table|database|schema)/i, name: "Database destruction", severity: "CRITICAL", category: "LLM06" },
   { pattern: /truncate\s+table/i, name: "Table truncation", severity: "HIGH", category: "LLM06" },
   { pattern: /exfiltrate|exfil|data\s+extraction/i, name: "Data exfiltration", severity: "CRITICAL", category: "LLM05" },
-  { pattern: /export\s+(?:all|customer|user|data)/i, name: "Bulk data export", severity: "HIGH", category: "LLM05" },
-  { pattern: /send\s+(?:all|customer|user|data|file)/i, name: "Data transmission", severity: "HIGH", category: "LLM05" },
-  { pattern: /download\s+(?:database|all|customer)/i, name: "Database download", severity: "HIGH", category: "LLM05" },
+  { pattern: /export\s+(?:all|customer|user|data|records)/i, name: "Bulk data export", severity: "HIGH", category: "LLM05" },
+  { pattern: /send\s+(?:all|customer|user|data|file|record)/i, name: "Data transmission", severity: "HIGH", category: "LLM05" },
+  { pattern: /download\s+(?:database|all|customer|record)/i, name: "Database download", severity: "HIGH", category: "LLM05" },
   { pattern: /write\s+to\s+file|save\s+to\s+file/i, name: "File write", severity: "MEDIUM", category: "LLM05" },
   { pattern: /chmod\s+777|chmod\s+-R\s+777/i, name: "Permission escalation", severity: "HIGH", category: "LLM06" },
   { pattern: /sudo|root\s+access|administrator/i, name: "Privilege escalation", severity: "HIGH", category: "LLM06" },
+  { pattern: /pastebin|paste\.ee|0x0\.st/i, name: "Paste service upload", severity: "HIGH", category: "LLM05" },
+  { pattern: /curl.*http|wget.*http/i, name: "HTTP exfiltration", severity: "HIGH", category: "LLM05" },
+  { pattern: /encode.*base64|base64.*encode/i, name: "Encoding for exfil", severity: "MEDIUM", category: "LLM05" },
 ];
 
 const SOCIAL_ENG_PATTERNS = [
@@ -190,8 +198,12 @@ const SOCIAL_ENG_PATTERNS = [
 
 const PROMPT_LEAK_PATTERNS = [
   { pattern: /what\s+(?:is|was)\s+your\s+(?:system|initial|original)\s+(?:prompt|instruction)/i, name: "Prompt extraction", severity: "MEDIUM", category: "LLM07" },
-  { pattern: /repeat\s+(?:the\s+above|previous|that|word for word|it exactly)/i, name: "Repetition attack", severity: "MEDIUM", category: "LLM07" },
+  { pattern: /repeat\s+(?:the\s+above|previous|that|word for word|it exactly|exactly)/i, name: "Repetition attack", severity: "MEDIUM", category: "LLM07" },
   { pattern: /show\s+(?:me\s+)?your\s+(?:system\s+)?prompt/i, name: "Prompt reveal request", severity: "MEDIUM", category: "LLM07" },
+  { pattern: /print\s+(?:your|the)\s+(?:system|initial)\s+(?:prompt|instruction)/i, name: "Print prompt request", severity: "MEDIUM", category: "LLM07" },
+  { pattern: /output\s+(?:your|the)\s+(?:system|initial)\s+(?:prompt|instruction)/i, name: "Output prompt request", severity: "MEDIUM", category: "LLM07" },
+  { pattern: /ignore.*previous.*show.*original/i, name: "Original prompt request", severity: "HIGH", category: "LLM07" },
+  { pattern: /repeat\s+it/i, name: "Repeat request", severity: "MEDIUM", category: "LLM07" },
 ];
 
 function runHeuristicScan(content) {
@@ -234,9 +246,9 @@ function runHeuristicScan(content) {
   score += criticalCount * 75;
   
   // HIGH severity adds meaningfully but doesn't change category alone
-  score += highCount * 15;
+  score += highCount * 20;
   
-  // MEDIUM adds minor weight
+  // MEDIUM adds weight - 2 mediums should be around 10+ for minScore thresholds
   score += mediumCount * 5;
   
   // Bonus for combination attacks (only if already critical)
@@ -473,8 +485,6 @@ Schema:
 async function performScan(content, scanContext, compareBaseline, groqApiKey, attempt = 1) {
   const MAX_RETRIES = 1;
   
-  console.log('DEBUG performScan: starting with groqApiKey:', !!groqApiKey, 'attempt:', attempt);
-  
   try {
     const baseline = sanitizeInput(compareBaseline || '');
     const wrappedContent = baseline
@@ -486,8 +496,6 @@ async function performScan(content, scanContext, compareBaseline, groqApiKey, at
       : SYSTEM_PROMPT;
 
     const timeout = abortAfter(GROQ_TIMEOUT_MS);
-    
-    console.log('DEBUG performScan: calling Groq API at', GROQ_BASE_URL);
     
     const response = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
       method: "POST",
@@ -509,13 +517,10 @@ async function performScan(content, scanContext, compareBaseline, groqApiKey, at
     
     timeout.done();
 
-    console.log('DEBUG performScan: Groq response status:', response.status);
-
     if (!response.ok) throw new Error(`Groq API ${response.status}`);
     
     const data = await response.json();
     const outputText = data.choices?.[0]?.message?.content?.trim() || "";
-    console.log('DEBUG performScan: outputText length:', outputText.length);
     if (!outputText) throw new Error("Empty response");
 
     let parsed;
@@ -536,14 +541,12 @@ async function performScan(content, scanContext, compareBaseline, groqApiKey, at
     return { outputText, parsed: merged, provider: "groq+heuristic", model: GROQ_MODEL, heuristicEnhanced: true };
     
   } catch (e) {
-    console.log('DEBUG performScan: ERROR caught:', e.message);
     if (attempt < MAX_RETRIES) {
       await new Promise(r => setTimeout(r, 1000));
       return performScan(content, scanContext, compareBaseline, groqApiKey, attempt + 1);
     }
     
     log('WARN', 'Falling back to heuristic scan', { error: e.message });
-    console.log('DEBUG performScan: falling back to heuristic');
     const heuristic = runHeuristicScan(content);
     return { 
       outputText: JSON.stringify(heuristic), 
@@ -607,11 +610,6 @@ function getFallbackResponse(reason) {
 app.post("/api/scans", rateLimitScan, async (req, res) => {
   const requestId = res.locals.requestId;
   
-  // Debug: Log environment variable status
-  console.log('DEBUG: GROQ_API_KEY exists:', !!process.env.GROQ_API_KEY);
-  console.log('DEBUG: GROQ_API_KEY length:', process.env.GROQ_API_KEY?.length);
-  console.log('DEBUG: All env keys:', Object.keys(process.env).filter(k => k.includes('GROQ') || k.includes('API')));
-  
   try {
     const { content, scanContext, compareBaseline } = req.body || {};
     
@@ -624,16 +622,33 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
     }
 
     const groqApiKey = process.env.GROQ_API_KEY;
-    console.log('DEBUG: groqApiKey assigned:', !!groqApiKey);
+    
+    // Check cache first
+    const cacheKey = getCacheKey(content, scanContext, compareBaseline);
+    const cached = scanCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < SCAN_CACHE_MS)) {
+      log('INFO', 'Cache hit', { requestId, cacheKey: cacheKey.slice(0, 8) });
+      const cachedResult = cached.result;
+      return res.json({
+        ok: true,
+        outputText: cachedResult.outputText,
+        parsed: cachedResult.parsed,
+        provider: cachedResult.provider,
+        model: cachedResult.model,
+        compareMode: !!compareBaseline,
+        fallback: cachedResult.fallback || false,
+        heuristicOnly: cachedResult.heuristicOnly || false,
+        cached: true,
+        requestId,
+        version: APP_VERSION
+      });
+    }
     
     let scanResult;
     
     if (groqApiKey) {
-      console.log('DEBUG: Calling performScan with Groq API');
       scanResult = await performScan(content, scanContext, compareBaseline, groqApiKey);
-      console.log('DEBUG: performScan completed, provider:', scanResult.provider);
     } else {
-      console.log('DEBUG: No API key - using heuristic only');
       // No API key - use heuristic only
       const heuristic = runHeuristicScan(content);
       scanResult = {
@@ -646,26 +661,20 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
     }
     
     // Cache result
-    const cacheKey = getCacheKey(content, scanContext, compareBaseline);
     scanCache.set(cacheKey, { result: scanResult, timestamp: Date.now() });
     
-    // Save to Supabase if auth
+    // Save to Supabase if auth (aligned with schema - no duplicate fields)
     const authHeader = req.headers.authorization;
     if (supabase && authHeader?.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
       try {
         const { data: { user } } = await supabase.auth.getUser(token);
         if (user) {
-          // Align with database schema - store flattened fields for easier querying
           const owaspCategories = (scanResult.parsed.owasp || []).map(o => o.id).filter(Boolean);
-          const resultLabel = scanResult.parsed.label;
-          const resultScore = scanResult.parsed.score;
           await supabase.from('scans').insert({
             user_id: user.id,
             content_hash: crypto.createHash('sha256').update(content).digest('hex').slice(0, 32),
             result: scanResult.parsed,
-            result_label: resultLabel,
-            result_score: resultScore,
             score: scanResult.parsed.score,
             provider: scanResult.provider,
             model: scanResult.model,

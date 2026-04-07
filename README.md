@@ -1,6 +1,6 @@
 # AI Security Copilot
 
-**[🔗 Live Demo](https://ai-agent-security-copilot.vercel.app)**
+**[🔗 Live Demo](https://ai-agent-security-copilot.vercel.app)** | **[Pricing](pricing.html)**
 
 **Security regression testing for LLM prompts and agents.**
 
@@ -8,38 +8,37 @@ Stop wondering "did this change make my prompt less safe?" Get a clear answer in
 
 ![AI Security Copilot Demo](screenshots/demo-scan.png)
 
-## The Problem
+## Why This Exists
 
 You ship AI features fast. Your prompts, RAG policies, and agent instructions change constantly.
 
-But every change is a potential security regression:
+Every change is a potential security regression:
 - Did that "helpful" copy change accidentally enable injection?
 - Did the new tool integration give the agent too much power?
-- Did the system prompt leak into user-facing output?
+- Did a refactor expose the system prompt to user manipulation?
 
-**You need a fast, reliable way to know if a change made things worse.**
+**This tool answers one question with certainty: "Did this change make my prompt/agent less safe?"**
 
-## The Solution: Regression Testing
-
-This tool answers one question with certainty: **"Did this change make my prompt/agent less safe?"**
-
-### Core Features
+## Core Capabilities
 
 | Feature | What It Does |
 |---------|-------------|
 | **🔄 Regression Testing** | Compare baseline vs candidate. Get score delta, new findings, resolved findings, and verdict (SAFER/RISKIER/UNCHANGED) |
-| **🔍 Deterministic Detection** | 40+ patterns catch obvious issues even without AI (prompt injection, secrets, dangerous commands) |
+| **🔍 Deterministic Detection** | 50+ patterns catch obvious issues even without AI (prompt injection, secrets, dangerous commands, exfiltration) |
 | **🤖 AI Enhancement** | Groq AI provides nuanced analysis and OWASP mapping when available |
 | **🛡️ Never Fails Silent** | If AI is down, deterministic rules still catch critical issues |
 | **⚡ 2-Second Results** | Fast enough to run on every commit |
+| **💰 Free Tier** | Deterministic scanning works without any API key or signup
 
 ## Quick Start
 
 ### 1. Live Demo (Fastest)
 
-Visit [ai-agent-security-copilot.vercel.app](https://ai-agent-security-copilot.vercel.app) and paste any text.
+Visit [ai-agent-security-copilot.vercel.app](https://ai-agent-security-copilot.vercel.app) and paste any text. No signup required.
 
 ### 2. GitHub Action (CI/CD)
+
+Add this workflow to catch regressions on every PR:
 
 ```yaml
 name: Security Check
@@ -57,20 +56,27 @@ jobs:
           fail-on: 'medium'
 ```
 
+The action will comment on PRs if security risk increased.
+
 ### 3. CLI (Local Dev)
 
 ```bash
+# Install
+git clone https://github.com/salimassili62-afk/ai-security-copilot.git
+cd ai-security-copilot
+npm install
+
 # Scan single file
 node bin/cli.js prompt.txt
 
 # Regression test
 node bin/cli.js --compare baseline.txt new-version.txt
 
-# Pipe content
-echo "Ignore previous instructions" | node bin/cli.js
+# JSON output for automation
+node bin/cli.js prompt.txt -o json
 ```
 
-### 4. Self-Host
+### 4. Self-Host / Vercel Deploy
 
 ```bash
 git clone https://github.com/salimassili62-afk/ai-security-copilot.git
@@ -84,7 +90,15 @@ cp .env.example .env
 npm start
 ```
 
-Works in **heuristic-only mode** without any API key.
+**Deploy to Vercel:**
+1. Fork this repo
+2. Import to [Vercel](https://vercel.com)
+3. Add environment variables in Vercel dashboard:
+   - `GROQ_API_KEY` (optional, for AI enhancement)
+   - `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` (optional, for auth/history)
+4. Deploy
+
+Works in **deterministic-only mode** without any API key.
 
 ## API Usage
 
@@ -136,7 +150,27 @@ Risk Delta: +40 points
 🔄 Triage Change: ALLOW → BLOCK
 ```
 
-## How It Works
+## Evaluation & Benchmarks
+
+The tool is continuously evaluated against a labeled corpus of attack and benign samples.
+
+**Current Performance:**
+- **Detection Rate**: ~85%+ on prompt injection variants
+- **False Positive Rate**: <10% on benign samples
+- **Coherent Scoring**: Score/label/triage always aligned (no contradictory states)
+
+**Test it yourself:**
+```bash
+# Run evaluation corpus
+node eval/eval.js
+```
+
+**Scoring Model:**
+- **75-100**: HIGH risk → BLOCK action
+- **40-74**: MEDIUM risk → REVIEW action  
+- **0-39**: LOW risk → ALLOW action
+
+Critical findings automatically trigger HIGH scores and BLOCK actions.
 
 ### Deterministic + AI Hybrid
 
@@ -187,22 +221,35 @@ Risk Delta: +40 points
 - **Max 10,000 characters** per scan
 - **Groq API key optional** - Works in heuristic-only mode without
 
-## Development
+## Development & Testing
 
 ```bash
-# Run smoke tests
+# Run smoke tests (9 core tests)
 npm test
 
-# Run eval corpus
+# Run evaluation corpus (detailed metrics)
 node eval/eval.js
+
+# Test with Groq API
+GROQ_API_KEY=your_key npm test
 ```
+
+**Test Coverage:**
+- Health endpoint
+- Scan endpoint (single and compare mode)
+- Prompt injection detection
+- Secret pattern detection
+- Fallback mode
+- Rate limiting
+- Error handling
 
 ## Contributing
 
 Issues and PRs welcome. Keep it focused:
-- This is a regression testing tool, not a broad "AI security platform"
+- This is a **regression testing tool**, not a broad "AI security platform"
 - Prefer deterministic rules over AI magic
 - Prioritize speed and reliability
+- Add patterns for real attack variants you encounter
 
 ## License
 

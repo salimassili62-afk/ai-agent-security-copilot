@@ -219,6 +219,7 @@
   <div class="wrap">
     <div class="auth-bar">
       <span id="authStatus"></span>
+      <a href="pricing.html" class="btn-ghost" style="margin-right: 8px; text-decoration: none; display: inline-block; padding: 6px 12px; font-size: 13px;">Pricing</a>
       <button class="btn-ghost" id="loginBtn" style="display:none;">Sign in with GitHub</button>
       <button class="btn-ghost" id="logoutBtn" style="display:none;">Logout</button>
     </div>
@@ -371,9 +372,9 @@
     </div>
 
     <div class="card">
-      <label>Recent scans (local history)</label>
+      <label>Recent scans</label>
       <div id="history"></div>
-      <p class="footer">Saved in your browser via <code>localStorage</code> (for MVP demo only).</p>
+      <p class="footer">Saved in your browser via <code>localStorage</code>. Sign in to sync across devices.</p>
     </div>
 
     <div class="card">
@@ -1284,17 +1285,21 @@ Schema:
           : result.score >= 40
             ? "⚡ Medium risk: Review recommended. Check findings before deployment."
             : "✅ Low risk: No significant security patterns detected. Standard precautions apply.";
-        const provLabel = provider === "heuristic" ? "Deterministic" : provider === "groq+heuristic" ? "AI + Rules" : provider === "regression" ? "Regression Test" : provider === "groq" ? "Groq AI" : provider;
+        const provLabel = provider === "heuristic" ? "Security Rules" : provider === "groq+heuristic" ? "AI + Security Rules" : provider === "regression" ? "Regression Test" : provider === "groq" ? "AI Analysis" : provider;
         const scanDuration = ((Date.now() - scanStartTime) / 1000).toFixed(1);
         providerLine.style.display = "block";
-        const rid = requestId ? ` · Request ${requestId}` : "";
-        const cmp = compareMode ? " · Compare mode" : "";
-        providerLine.textContent = `Engine: ${provLabel}${model ? ` · ${model}` : ""}${cmp} · v${version}${rid} · ${scanDuration}s${fallback ? ' · FALLBACK MODE' : ''}${heuristicOnly ? ' · HEURISTIC ONLY' : ''}`;
+        const rid = requestId ? ` · ${requestId.slice(0, 8)}` : "";
+        const cmp = compareMode ? " · Compare" : "";
+        const modeNote = fallback ? " · AI fallback" : heuristicOnly ? " · Rules-only mode" : "";
+        providerLine.textContent = `${provLabel}${model ? ` · ${model}` : ""}${cmp}${rid} · ${scanDuration}s${modeNote} · v${version}`;
         
-        // Visual indicator for fallback/heuristic mode
+        // Visual indicator for fallback/heuristic mode - subtle, not alarming
         if (fallback || heuristicOnly) {
           riskBadge.style.border = "2px dashed var(--warn)";
-          scoreReason.textContent += " (Using deterministic rules - AI unavailable)";
+          // Only add note if not already in the score reason
+          if (!scoreReason.textContent.includes("AI unavailable")) {
+            scoreReason.textContent += " (Deterministic security rules applied)";
+          }
         } else {
           riskBadge.style.border = "";
         }
