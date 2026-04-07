@@ -403,7 +403,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
-    const APP_VERSION = "1.3.1";
+    const APP_VERSION = "2.0.0";
     const CLAUDE_MODEL = "groq-llama-3.1-8b";
     const SECURITY_SYSTEM_PROMPT = `You are an AI security analyst for teams shipping LLM products and autonomous agents.
 
@@ -474,23 +474,102 @@ Schema:
     let scanStartTime = null;
 
     // GitHub OAuth Auth State
+    let accessToken = localStorage.getItem('access_token');
+    let refreshToken = localStorage.getItem('refresh_token');
     let currentUser = null;
-    let accessToken = localStorage.getItem('access_token') || null;
-    const authStatus = document.getElementById("authStatus");
-    const loginBtn = document.getElementById("loginBtn");
-    const logoutBtn = document.getElementById("logoutBtn");
+
+    // Check for OAuth callback tokens in URL hash
+    function checkOAuthCallback() {
+      const hash = window.location.hash;
+      if (hash && hash.includes('access_token=')) {
+        const params = new URLSearchParams(hash.slice(1));
+        const token = params.get('access_token');
+        const refresh = params.get('refresh_token');
+        const userStr = params.get('user');
+        
+        if (token) {
+          accessToken = token;
+          localStorage.setItem('access_token', token);
+          
+          if (refresh) {
+            refreshToken = refresh;
+            localStorage.setItem('refresh_token', refresh);
+          }
+          
+          if (userStr) {
+            try {
+              currentUser = JSON.parse(decodeURIComponent(userStr));
+            } catch (e) {
+              console.error('Failed to parse user data:', e);
+            }
+          }
+          
+          // Clean URL
+          window.history.replaceState({}, document.title, '/');
+          showToast('Signed in successfully!');
+          showLoggedInMode();
+          loadCloudHistory();
+          return true;
+        }
+      }
+      return false;
+    }
 
     async function checkAuth() {
+      // First check for OAuth callback
+      if (checkOAuthCallback()) return;
+      
+      // Check for error in query params
+      const urlParams = new URLSearchParams(window.location.search);
+      const error = urlParams.get('error');
+      if (error) {
+        showToast('Login failed: ' + error);
+        window.history.replaceState({}, document.title, '/');
+      }
+      
       if (!accessToken) {
         showGuestMode();
         return;
       }
+      
       try {
         const res = await fetch("/api/auth/user", {
           headers: { "Authorization": `Bearer ${accessToken}` }
         });
         const data = await res.json();
         if (data.user) {
+          currentUser = data.user;
+          showLoggedInMode();
+          loadCloudHistory();
+        } else {
+          // Token invalid, try refresh
+          await tryRefreshToken();
+        }
+      } catch (e) {
+        showGuestMode();
+      }
+    }
+
+    async function tryRefreshToken() {
+      if (!refreshToken) {
+        showGuestMode();
+        return;
+      }
+      
+      try {
+        const res = await fetch("/api/auth/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken })
+        });
+        const data = await res.json();
+        if (data.ok && data.session?.access_token) {
+          accessToken = data.session.access_token;
+          localStorage.setItem('access_token', accessToken);
+          if (data.session.refresh_token) {
+            refreshToken = data.session.refresh_token;
+            localStorage.setItem('refresh_token', refreshToken);
+          }
           currentUser = data.user;
           showLoggedInMode();
           loadCloudHistory();
@@ -505,7 +584,9 @@ Schema:
     function showGuestMode() {
       currentUser = null;
       accessToken = null;
+      refreshToken = null;
       localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
       const guestBadge = document.getElementById('guestBadge');
       if (guestBadge) guestBadge.style.display = 'inline-block';
       authStatus.innerHTML = '';
@@ -527,51 +608,20 @@ Schema:
       try {
         const res = await fetch("/api/auth/github");
         const data = await res.json();
-        // Only redirect if we have a valid URL - prevents "Invalid Redirect URL" errors
+        
         if (data.url && data.url.startsWith('http')) {
+          // Real OAuth flow
           window.location.href = data.url;
         } else if (data.setupRequired) {
-          // Show helpful setup dialog instead of broken redirect
+          // Show setup dialog
           const steps = data.setupSteps ? data.setupSteps.join('\n') : '';
-          showToast("Sign in coming soon — using Guest mode for now");
-          alert(`🔐 Sign In — Coming Soon
-
-Authentication is not yet configured for this deployment.
-All features work in Guest mode with local browser storage.
-
-${steps ? '\nTo enable sign-in:\n' + steps : ''}
-
-✅ Your scans are saved locally and will persist in this browser.`);
+          alert(`🔐 Sign In Setup Required\n\n${data.error}\n\n${steps ? 'Setup steps:\n' + steps : ''}\n\nGuest mode is available and fully functional.`);
         } else {
           showToast("Sign in not available — using Guest mode");
         }
       } catch (e) {
         showToast("Sign in temporarily unavailable");
-        console.log("Auth error:", e);
-      }
-    }
-
-    async function exchangeCodeForSession(code) {
-      try {
-        const res = await fetch("/api/auth/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code })
-        });
-        const data = await res.json();
-        if (data.session?.access_token) {
-          accessToken = data.session.access_token;
-          localStorage.setItem('access_token', accessToken);
-          currentUser = data.user;
-          showLoggedInMode();
-          loadCloudHistory();
-          showToast("Signed in successfully!");
-          // Clean URL
-          window.history.replaceState({}, document.title, '/');
-        }
-      } catch (e) {
-        showToast("Login failed");
-        showGuestMode();
+        console.error("Auth error:", e);
       }
     }
 
@@ -587,10 +637,12 @@ ${steps ? '\nTo enable sign-in:\n' + steps : ''}
         }
       }
       localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
       accessToken = null;
+      refreshToken = null;
       currentUser = null;
       showGuestMode();
-      loadHistory(); // Reload local history
+      loadHistory();
       showToast("Logged out");
     }
 
@@ -629,16 +681,6 @@ ${steps ? '\nTo enable sign-in:\n' + steps : ''}
       });
     }
 
-    // Check for OAuth callback
-    const urlParams = new URLSearchParams(window.location.search);
-    const oauthCode = urlParams.get('code');
-    const oauthError = urlParams.get('error');
-    if (oauthCode) {
-      exchangeCodeForSession(oauthCode);
-    } else if (oauthError) {
-      showToast("Login failed: " + oauthError);
-    }
-
     // Event listeners
     loginBtn.addEventListener("click", startGitHubLogin);
     logoutBtn.addEventListener("click", logout);
@@ -656,8 +698,9 @@ ${steps ? '\nTo enable sign-in:\n' + steps : ''}
       buildMeta.textContent = `AI Security Copilot v${APP_VERSION}${modeText}`;
     }
 
-    // Check URL for shared results on load (reuse existing urlParams)
-    const shareParam = urlParams.get('share');
+    // Check URL for shared results
+    const shareParams = new URLSearchParams(window.location.search);
+    const shareParam = shareParams.get('share');
     if (shareParam) {
       try {
         const shareData = JSON.parse(atob(shareParam));

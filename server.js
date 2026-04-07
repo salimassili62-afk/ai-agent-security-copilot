@@ -7,7 +7,7 @@ const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const APP_VERSION = "1.3.1";
+const APP_VERSION = "2.0.0";
 
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
@@ -429,18 +429,18 @@ Schema:
   "red_team_followups": ["test ideas"]
 }`;
 
-// Perform scan with retry logic
+// Perform scan with robust retry logic and strict validation
 async function performScan(content, scanContext, compareBaseline, groqApiKey, attempt = 1) {
-  const MAX_RETRIES = 1;
+  const MAX_RETRIES = 2;
   
   try {
     const baseline = sanitizeInput(compareBaseline || '');
     const wrappedContent = baseline
-      ? `[Compare]\nBASELINE:\n${baseline}\n\nCANDIDATE:\n${content}`
-      : content;
+      ? `[Compare Mode]\n\nBASELINE (reference):\n${baseline}\n\n---\n\nCANDIDATE (to evaluate):\n${content}\n\nProvide risk score for CANDIDATE vs BASELINE. Highlight new risks or improvements.`
+      : `[Scan Context: ${scanContext || 'General security scan'}]\n\n${content}`;
     
     const systemPrompt = baseline 
-      ? SYSTEM_PROMPT + "\nCompare mode: Score CANDIDATE vs BASELINE, show risk delta."
+      ? SYSTEM_PROMPT + "\n\nCompare mode: Score CANDIDATE (0-100) relative to BASELINE. Note new risks or improvements."
       : SYSTEM_PROMPT;
 
     const timeout = abortAfter(GROQ_TIMEOUT_MS);
@@ -454,8 +454,9 @@ async function performScan(content, scanContext, compareBaseline, groqApiKey, at
       signal: timeout.src,
       body: JSON.stringify({ 
         model: GROQ_MODEL, 
-        max_tokens: 800, 
+        max_tokens: 1000, 
         temperature: 0.1, 
+        response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt }, 
           { role: "user", content: wrappedContent }
@@ -465,45 +466,173 @@ async function performScan(content, scanContext, compareBaseline, groqApiKey, at
     
     timeout.done();
 
-    if (!response.ok) throw new Error(`Groq API ${response.status}`);
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error');
+      throw new Error(`Groq API ${response.status}: ${errorText.slice(0, 200)}`);
+    }
     
     const data = await response.json();
     const outputText = data.choices?.[0]?.message?.content?.trim() || "";
-    if (!outputText) throw new Error("Empty response");
+    if (!outputText) throw new Error("Empty response from Groq");
 
     let parsed;
     try {
-      const jsonMatch = outputText.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : outputText);
-    } catch {
-      if (attempt < MAX_RETRIES) {
-        return performScan(content.slice(0, 3000), scanContext, compareBaseline, groqApiKey, attempt + 1);
+      parsed = JSON.parse(outputText);
+    } catch (parseErr) {
+      // Try to extract JSON from markdown fences
+      const jsonMatch = outputText.match(/```json\s*([\s\S]*?)\s*```/) || 
+                        outputText.match(/```\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[1].trim());
+      } else {
+        // Try to find JSON object in text
+        const objMatch = outputText.match(/\{[\s\S]*\}/);
+        if (objMatch) {
+          parsed = JSON.parse(objMatch[0]);
+        } else {
+          throw new Error("No valid JSON found in response");
+        }
       }
-      throw new Error("Parse failed");
     }
+    
+    // Validate and normalize the response
+    const validated = validateAndNormalizeAIResponse(parsed);
     
     // Run heuristic scan and merge
     const heuristic = runHeuristicScan(content);
-    const merged = mergeWithHeuristic(parsed, heuristic);
+    const merged = mergeWithHeuristic(validated, heuristic);
     
-    return { outputText, parsed: merged, provider: "groq+heuristic", model: GROQ_MODEL, heuristicEnhanced: true };
+    return { 
+      outputText: JSON.stringify(merged), 
+      parsed: merged, 
+      provider: "groq+heuristic", 
+      model: GROQ_MODEL, 
+      heuristicEnhanced: true 
+    };
     
   } catch (e) {
+    log('WARN', `Groq scan attempt ${attempt} failed`, { error: e.message });
+    
     if (attempt < MAX_RETRIES) {
-      await new Promise(r => setTimeout(r, 1000));
-      return performScan(content, scanContext, compareBaseline, groqApiKey, attempt + 1);
+      // Exponential backoff: 1s, 2s
+      const delay = attempt * 1000;
+      await new Promise(r => setTimeout(r, delay));
+      // Retry with truncated content if it might be too long
+      const retryContent = content.length > 5000 ? content.slice(0, 5000) : content;
+      return performScan(retryContent, scanContext, compareBaseline, groqApiKey, attempt + 1);
     }
     
-    log('WARN', 'Falling back to heuristic scan', { error: e.message });
+    // All retries exhausted - fall back to deterministic
+    log('WARN', 'Falling back to heuristic scan after retries exhausted', { error: e.message });
     const heuristic = runHeuristicScan(content);
     return { 
       outputText: JSON.stringify(heuristic), 
-      parsed: { ...heuristic, fallback: true }, 
+      parsed: { ...heuristic, fallback: true, fallbackReason: e.message }, 
       provider: "heuristic", 
       model: "deterministic",
       fallback: true 
     };
   }
+}
+
+// Validate and normalize AI response to ensure consistent schema
+function validateAndNormalizeAIResponse(raw) {
+  const normalized = {
+    score: 0,
+    label: "LOW",
+    confidence: "MEDIUM",
+    summary: "Analysis completed",
+    reasons: [],
+    fixes: [],
+    owasp: [],
+    triage: { action: "ALLOW", rationale: "No significant findings" },
+    soc_note: "",
+    false_positive_risk: "MEDIUM",
+    red_team_followups: []
+  };
+  
+  // Score (0-100)
+  if (typeof raw.score === 'number') {
+    normalized.score = Math.max(0, Math.min(100, Math.round(raw.score)));
+  } else if (typeof raw.score === 'string') {
+    const parsed = parseInt(raw.score, 10);
+    if (!isNaN(parsed)) normalized.score = Math.max(0, Math.min(100, parsed));
+  }
+  
+  // Label - ensure coherence with score
+  const rawLabel = typeof raw.label === 'string' ? raw.label.toUpperCase() : '';
+  if (rawLabel === 'HIGH' || rawLabel === 'MEDIUM' || rawLabel === 'LOW') {
+    normalized.label = rawLabel;
+  } else {
+    // Derive from score
+    normalized.label = normalized.score >= 75 ? 'HIGH' : normalized.score >= 40 ? 'MEDIUM' : 'LOW';
+  }
+  
+  // Confidence
+  const rawConf = typeof raw.confidence === 'string' ? raw.confidence.toUpperCase() : '';
+  normalized.confidence = ['HIGH', 'MEDIUM', 'LOW'].includes(rawConf) ? rawConf : 'MEDIUM';
+  
+  // Summary
+  if (typeof raw.summary === 'string' && raw.summary.trim()) {
+    normalized.summary = raw.summary.trim();
+  }
+  
+  // Reasons array
+  if (Array.isArray(raw.reasons)) {
+    normalized.reasons = raw.reasons.filter(r => typeof r === 'string').map(r => r.trim());
+  }
+  
+  // Fixes array
+  if (Array.isArray(raw.fixes)) {
+    normalized.fixes = raw.fixes.filter(f => typeof f === 'string').map(f => f.trim());
+  }
+  
+  // OWASP categories
+  if (Array.isArray(raw.owasp)) {
+    normalized.owasp = raw.owasp
+      .filter(o => o && typeof o === 'object')
+      .map(o => ({
+        id: typeof o.id === 'string' ? o.id : '',
+        title: typeof o.title === 'string' ? o.title : '',
+        severity: ['HIGH', 'MEDIUM', 'LOW'].includes(o.severity?.toUpperCase()) ? o.severity.toUpperCase() : 'MEDIUM',
+        note: typeof o.note === 'string' ? o.note : ''
+      }))
+      .filter(o => o.id || o.title);
+  }
+  
+  // Triage
+  if (raw.triage && typeof raw.triage === 'object') {
+    const action = typeof raw.triage.action === 'string' ? raw.triage.action.toUpperCase() : '';
+    normalized.triage.action = ['ALLOW', 'REVIEW', 'BLOCK', 'ESCALATE'].includes(action) ? action : 'REVIEW';
+    normalized.triage.rationale = typeof raw.triage.rationale === 'string' ? raw.triage.rationale : '';
+  } else {
+    // Derive triage from score
+    if (normalized.score >= 75) {
+      normalized.triage.action = 'BLOCK';
+      normalized.triage.rationale = 'High risk score detected';
+    } else if (normalized.score >= 40) {
+      normalized.triage.action = 'REVIEW';
+      normalized.triage.rationale = 'Medium risk score requires review';
+    }
+  }
+  
+  // SOC note
+  if (typeof raw.soc_note === 'string') {
+    normalized.soc_note = raw.soc_note.trim();
+  }
+  
+  // False positive risk
+  const rawFPR = typeof raw.false_positive_risk === 'string' ? raw.false_positive_risk.toUpperCase() : '';
+  normalized.false_positive_risk = ['HIGH', 'MEDIUM', 'LOW'].includes(rawFPR) ? rawFPR : 'MEDIUM';
+  
+  // Red team followups
+  if (Array.isArray(raw.red_team_followups)) {
+    normalized.red_team_followups = raw.red_team_followups
+      .filter(f => typeof f === 'string')
+      .slice(0, 5);
+  }
+  
+  return normalized;
 }
 
 function mergeWithHeuristic(aiResult, heuristicResult) {
@@ -668,35 +797,224 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
   }
 });
 
-// Auth endpoints - disabled until fully configured
-app.get("/api/auth/github", (req, res) => {
-  // Return info that auth requires proper setup
-  // This prevents the "Invalid Redirect URL" GitHub error
-  res.json({ 
-    ok: false, 
-    url: null,  // Explicitly null to prevent redirect
-    error: "GitHub OAuth not fully configured. See setup guide.",
-    setupRequired: true,
-    setupSteps: [
-      "1. Create Supabase project at supabase.com",
-      "2. Add SUPABASE_URL and SUPABASE_SERVICE_KEY env vars",
-      "3. Enable GitHub OAuth in Supabase Auth > Providers",
-      "4. Set callback URL in GitHub OAuth app to: https://your-app.vercel.app/api/auth/callback",
-      "5. Add your Vercel URL to allowed redirect URLs in Supabase"
-    ]
-  });
+// Auth endpoints - Full Supabase GitHub OAuth implementation
+app.get("/api/auth/github", async (req, res) => {
+  const requestId = res.locals.requestId;
+  
+  if (!supabase) {
+    return res.json({ 
+      ok: false, 
+      url: null,
+      error: "Authentication not configured. Add SUPABASE_URL and SUPABASE_SERVICE_KEY.",
+      setupRequired: true,
+      setupSteps: [
+        "1. Create Supabase project at supabase.com",
+        "2. Add SUPABASE_URL and SUPABASE_SERVICE_KEY env vars",
+        "3. Enable GitHub OAuth in Supabase Auth > Providers",
+        "4. Set callback URL in GitHub OAuth app to: https://your-app.vercel.app/api/auth/callback",
+        "5. Add your Vercel URL to allowed redirect URLs in Supabase"
+      ]
+    });
+  }
+  
+  try {
+    // Get the current URL for redirect
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.headers['x-forwarded-host'] || req.headers.host || req.get('host');
+    const redirectTo = `${protocol}://${host}/api/auth/callback`;
+    
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: {
+        redirectTo: redirectTo,
+        scopes: 'read:user user:email'
+      }
+    });
+    
+    if (error) {
+      log('ERROR', 'OAuth initiation failed', { error: error.message, requestId });
+      return res.status(500).json({ 
+        ok: false, 
+        error: `OAuth failed: ${error.message}`,
+        requestId 
+      });
+    }
+    
+    if (!data?.url) {
+      return res.status(500).json({ 
+        ok: false, 
+        error: "No OAuth URL returned from Supabase",
+        requestId 
+      });
+    }
+    
+    res.json({ 
+      ok: true, 
+      url: data.url,
+      requestId 
+    });
+  } catch (e) {
+    log('ERROR', 'Auth endpoint error', { error: e.message, requestId });
+    res.status(500).json({ 
+      ok: false, 
+      error: `Auth system error: ${e.message}`,
+      requestId 
+    });
+  }
 });
 
-app.post("/api/auth/session", (req, res) => {
-  res.status(400).json({ ok: false, error: "Auth requires Supabase configuration", setupRequired: true });
+// OAuth callback handler
+app.get("/api/auth/callback", async (req, res) => {
+  const requestId = res.locals.requestId;
+  const code = req.query.code;
+  const error = req.query.error;
+  const errorDescription = req.query.error_description;
+  
+  if (error) {
+    log('WARN', 'OAuth callback error', { error, errorDescription, requestId });
+    return res.redirect(`/?error=${encodeURIComponent(errorDescription || error)}`);
+  }
+  
+  if (!code) {
+    return res.redirect('/?error=No authorization code received');
+  }
+  
+  if (!supabase) {
+    return res.redirect('/?error=Authentication not configured on server');
+  }
+  
+  try {
+    // Exchange code for session
+    const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+    
+    if (exchangeError) {
+      log('ERROR', 'Code exchange failed', { error: exchangeError.message, requestId });
+      return res.redirect(`/?error=${encodeURIComponent(exchangeError.message)}`);
+    }
+    
+    if (!data?.session) {
+      return res.redirect('/?error=No session returned');
+    }
+    
+    // Redirect to home with tokens in URL fragment (client will handle)
+    const accessToken = data.session.access_token;
+    const refreshToken = data.session.refresh_token;
+    const user = data.user;
+    
+    // Store tokens in URL hash for client-side retrieval
+    const redirectUrl = `/#access_token=${accessToken}&refresh_token=${refreshToken}&user=${encodeURIComponent(JSON.stringify(user))}`;
+    res.redirect(redirectUrl);
+  } catch (e) {
+    log('ERROR', 'Callback processing error', { error: e.message, requestId });
+    res.redirect(`/?error=${encodeURIComponent('Authentication processing failed')}`);
+  }
 });
 
-app.get("/api/auth/user", (req, res) => {
-  res.json({ user: null });
+// Session validation and user info
+app.get("/api/auth/user", async (req, res) => {
+  const requestId = res.locals.requestId;
+  
+  if (!supabase) {
+    return res.json({ user: null, requestId });
+  }
+  
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.json({ user: null, requestId });
+  }
+  
+  const token = authHeader.split(' ')[1];
+  
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    
+    if (error || !user) {
+      return res.json({ user: null, error: error?.message, requestId });
+    }
+    
+    res.json({ 
+      user: {
+        id: user.id,
+        email: user.email,
+        user_metadata: user.user_metadata,
+        created_at: user.created_at
+      },
+      requestId 
+    });
+  } catch (e) {
+    log('ERROR', 'User fetch error', { error: e.message, requestId });
+    res.json({ user: null, error: e.message, requestId });
+  }
 });
 
-app.post("/api/auth/logout", (req, res) => {
-  res.json({ ok: true });
+// Refresh session
+app.post("/api/auth/session", async (req, res) => {
+  const requestId = res.locals.requestId;
+  const { refresh_token } = req.body || {};
+  
+  if (!supabase) {
+    return res.status(400).json({ 
+      ok: false, 
+      error: "Auth requires Supabase configuration", 
+      setupRequired: true,
+      requestId 
+    });
+  }
+  
+  if (!refresh_token) {
+    return res.status(400).json({ 
+      ok: false, 
+      error: "Refresh token required",
+      requestId 
+    });
+  }
+  
+  try {
+    const { data, error } = await supabase.auth.refreshSession({ refresh_token });
+    
+    if (error) {
+      return res.status(401).json({ 
+        ok: false, 
+        error: error.message,
+        requestId 
+      });
+    }
+    
+    res.json({ 
+      ok: true,
+      session: data.session,
+      user: data.user,
+      requestId 
+    });
+  } catch (e) {
+    log('ERROR', 'Session refresh error', { error: e.message, requestId });
+    res.status(500).json({ 
+      ok: false, 
+      error: e.message,
+      requestId 
+    });
+  }
+});
+
+// Logout
+app.post("/api/auth/logout", async (req, res) => {
+  const requestId = res.locals.requestId;
+  
+  if (!supabase) {
+    return res.json({ ok: true, requestId });
+  }
+  
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    try {
+      await supabase.auth.admin.signOut(token);
+    } catch (e) {
+      // Ignore signout errors
+    }
+  }
+  
+  res.json({ ok: true, requestId });
 });
 
 // Compare endpoint for regression testing
