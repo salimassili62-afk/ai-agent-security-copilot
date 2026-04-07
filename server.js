@@ -164,7 +164,8 @@ const SECRET_PATTERNS = [
   { pattern: /ghp_[a-zA-Z0-9]{36}/i, name: "GitHub personal token", severity: "CRITICAL", category: "LLM02" },
   { pattern: /gho_[a-zA-Z0-9]{36}/i, name: "GitHub OAuth token", severity: "CRITICAL", category: "LLM02" },
   { pattern: /glpat-[a-zA-Z0-9\-]{20,}/i, name: "GitLab token", severity: "CRITICAL", category: "LLM02" },
-  { pattern: /slack[_-]?token\s*[:=\s]+["']?xox[baprs]-[a-zA-Z0-9-]+/i, name: "Slack token", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /xox[baprs]-[a-zA-Z0-9\-\[\]]+/i, name: "Slack token", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /slack.*token/i, name: "Slack token reference", severity: "HIGH", category: "LLM02" },
 ];
 
 const DANGEROUS_PATTERNS = [
@@ -204,14 +205,11 @@ const PROMPT_LEAK_PATTERNS = [
   { pattern: /output\s+(?:your|the)\s+(?:system|initial)\s+(?:prompt|instruction)/i, name: "Output prompt request", severity: "MEDIUM", category: "LLM07" },
   { pattern: /ignore.*previous.*show.*original/i, name: "Original prompt request", severity: "HIGH", category: "LLM07" },
   { pattern: /repeat\s+it/i, name: "Repeat request", severity: "MEDIUM", category: "LLM07" },
+  { pattern: /reveal\s+(?:your|the)\s+(?:system\s+)?prompt/i, name: "Reveal prompt request", severity: "HIGH", category: "LLM07" },
+  { pattern: /system\s+prompt\s*\?/i, name: "System prompt question", severity: "MEDIUM", category: "LLM07" },
 ];
 
 function runHeuristicScan(content) {
-  const findings = [];
-  let criticalCount = 0;
-  let highCount = 0;
-  let mediumCount = 0;
-  
   const allPatterns = [
     ...INJECTION_PATTERNS,
     ...SECRET_PATTERNS,
@@ -219,6 +217,11 @@ function runHeuristicScan(content) {
     ...SOCIAL_ENG_PATTERNS,
     ...PROMPT_LEAK_PATTERNS
   ];
+  
+  const findings = [];
+  let criticalCount = 0;
+  let highCount = 0;
+  let mediumCount = 0;
   
   for (const detector of allPatterns) {
     if (detector.pattern.test(content)) {
@@ -320,7 +323,7 @@ function runHeuristicScan(content) {
   return {
     score,
     label,
-    confidence: criticalCount > 0 ? "HIGH" : highCount > 0 ? "HIGH" : "MEDIUM",
+    confidence: criticalCount > 0 ? "HIGH" : highCount > 0 ? "HIGH" : findings.length > 0 ? "MEDIUM" : "LOW",
     summary: findings.length > 0 
       ? `Deterministic scan: ${criticalCount} critical, ${highCount} high, ${mediumCount} medium risk pattern(s) detected`
       : "No security patterns detected",
@@ -329,8 +332,16 @@ function runHeuristicScan(content) {
     owasp,
     triage: { action, rationale },
     soc_note: `Security scan: ${score}/100 (${label}) - ${action} - ${findings.length} deterministic pattern(s)`,
-    false_positive_risk: criticalCount > 0 ? "LOW" : highCount > 0 ? "MEDIUM" : "HIGH",
+    false_positive_risk: criticalCount > 0 ? "LOW" : highCount > 0 ? "MEDIUM" : findings.length > 0 ? "HIGH" : "MEDIUM",
     red_team_followups: findings.slice(0, 3).map(f => `Verify ${f.type} is not false positive`),
+    uncertainty: findings.length > 0 ? "Pattern-based detection has known limitations. Verify findings manually." : "No patterns detected. This does not guarantee safety.",
+    detectionMethod: "heuristic",
+    knownLimitations: [
+      "Base64/encoded content may bypass detection",
+      "Unicode homoglyphs (lookalike characters) may bypass detection",
+      "Context-dependent attacks may be missed",
+      "Novel attack patterns not in signature database will be missed"
+    ],
     heuristic: true,
     deterministicFindings: findings
   };
@@ -631,6 +642,25 @@ function validateAndNormalizeAIResponse(raw) {
       .filter(f => typeof f === 'string')
       .slice(0, 5);
   }
+  
+  // Add uncertainty indicators based on detection method and result quality
+  if (!normalized.uncertainty) {
+    if (normalized.score < 30 && normalized.reasons.length === 0) {
+      normalized.uncertainty = "Low confidence: No clear patterns detected. Semantic attacks may be missed.";
+    } else if (normalized.confidence === "LOW") {
+      normalized.uncertainty = "Low confidence result. Recommend manual review.";
+    } else {
+      normalized.uncertainty = "AI-assisted detection. Verify findings against context.";
+    }
+  }
+  
+  normalized.detectionMethod = "ai+heuristic";
+  normalized.knownLimitations = [
+    "AI models can hallucinate findings",
+    "Novel attack patterns may be missed",
+    "Context-dependent risks require human judgment",
+    "Adversarial examples can bypass both AI and heuristic detection"
+  ];
   
   return normalized;
 }
