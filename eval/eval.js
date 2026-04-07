@@ -199,12 +199,16 @@ async function runEval() {
         }
         
         const icon = evaluation.passed 
-          ? (evaluation.isKnownLimitation ? '⚠️' : '✅') 
+          ? (evaluation.isKnownLimitation ? '⚠️' : (evaluation.decoded ? '🔓' : '✅')) 
           : '❌';
         const status = evaluation.passed 
-          ? (evaluation.isKnownLimitation ? 'ACCEPTED_LIMITATION' : 'PASS') 
+          ? (evaluation.isKnownLimitation ? 'ACCEPTED_LIMITATION' : (evaluation.decoded ? 'PASS_DECODED' : 'PASS')) 
           : 'FAIL';
         console.log(`${icon} ${testCase.id} (${testCase.category}): ${evaluation.score}/100 ${evaluation.label} - ${status} - ${evaluation.latency}ms`);
+        
+        if (evaluation.decoded) {
+          console.log(`   🔓 Detected in decoded/obfuscated content`);
+        }
         
         if (evaluation.warnings.length > 0) {
           evaluation.warnings.forEach(w => console.log(`   ⚠️  ${w}`));

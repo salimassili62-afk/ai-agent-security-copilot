@@ -179,15 +179,16 @@ const DANGEROUS_PATTERNS = [
   { pattern: /delete\s+(?:all|everything|files?|database)/i, name: "Mass deletion", severity: "CRITICAL", category: "LLM06" },
   { pattern: /drop\s+(?:table|database|schema)/i, name: "Database destruction", severity: "CRITICAL", category: "LLM06" },
   { pattern: /truncate\s+table/i, name: "Table truncation", severity: "HIGH", category: "LLM06" },
+  { pattern: /chmod\s+777|chmod\s+-R\s+777|chmod\s+666/i, name: "Permission escalation", severity: "HIGH", category: "LLM06" },
+  { pattern: /sudo|su\s+-|root\s+access/i, name: "Privilege escalation", severity: "HIGH", category: "LLM06" },
   { pattern: /exfiltrate|exfil|data\s+extraction/i, name: "Data exfiltration", severity: "CRITICAL", category: "LLM05" },
   { pattern: /export\s+(?:all|customer|user|data|records)/i, name: "Bulk data export", severity: "HIGH", category: "LLM05" },
   { pattern: /send\s+(?:all|customer|user|data|file|record)/i, name: "Data transmission", severity: "HIGH", category: "LLM05" },
   { pattern: /download\s+(?:database|all|customer|record)/i, name: "Database download", severity: "HIGH", category: "LLM05" },
   { pattern: /write\s+to\s+file|save\s+to\s+file/i, name: "File write", severity: "MEDIUM", category: "LLM05" },
-  { pattern: /chmod\s+777|chmod\s+-R\s+777/i, name: "Permission escalation", severity: "HIGH", category: "LLM06" },
-  { pattern: /sudo|root\s+access|administrator/i, name: "Privilege escalation", severity: "HIGH", category: "LLM06" },
   { pattern: /pastebin|paste\.ee|0x0\.st/i, name: "Paste service upload", severity: "HIGH", category: "LLM05" },
   { pattern: /curl.*http|wget.*http/i, name: "HTTP exfiltration", severity: "HIGH", category: "LLM05" },
+  { pattern: /base64.*pastebin|pastebin.*base64/i, name: "Encoded exfiltration via paste service", severity: "HIGH", category: "LLM05" },
   { pattern: /encode.*base64|base64.*encode/i, name: "Encoding for exfil", severity: "MEDIUM", category: "LLM05" },
 ];
 
@@ -207,33 +208,169 @@ const PROMPT_LEAK_PATTERNS = [
   { pattern: /repeat\s+it/i, name: "Repeat request", severity: "MEDIUM", category: "LLM07" },
   { pattern: /reveal\s+(?:your|the)\s+(?:system\s+)?prompt/i, name: "Reveal prompt request", severity: "HIGH", category: "LLM07" },
   { pattern: /system\s+prompt\s*\?/i, name: "System prompt question", severity: "MEDIUM", category: "LLM07" },
+  { pattern: /reveal\s+(?:hidden|secret|internal)\s+(?:prompt|instruction)/i, name: "Hidden instruction request", severity: "HIGH", category: "LLM07" },
 ];
 
+// Additional patterns for obfuscation detection
+const OBFUSCATION_PATTERNS = [
+  // Unicode ranges that are commonly used for homoglyph attacks
+  { pattern: /[\u0370-\u03FF]/, name: "Greek characters (potential homoglyph)", severity: "MEDIUM", category: "LLM01" },
+  { pattern: /[\u0400-\u04FF]/, name: "Cyrillic characters (potential homoglyph)", severity: "MEDIUM", category: "LLM01" },
+  { pattern: /[\uFF00-\uFFEF]/, name: "Fullwidth characters (potential homoglyph)", severity: "MEDIUM", category: "LLM01" },
+];
+// Returns original if decoding fails or appears unsafe
+function decodeInputSafely(content) {
+  if (!content || typeof content !== 'string') return content;
+  
+  let decoded = content;
+  
+  // Try Base64 decoding if it looks like Base64
+  // Check: no spaces, alphanumeric + / + = only, reasonable length
+  const base64Pattern = /^[A-Za-z0-9+/=\s]+$/;
+  const base64StrictPattern = /^[A-Za-z0-9+/=]+$/;
+  
+  if (base64StrictPattern.test(content.trim()) && content.length >= 20 && content.length % 4 === 0) {
+    try {
+      // Remove whitespace
+      const cleanB64 = content.replace(/\s/g, '');
+      const decodedBytes = Buffer.from(cleanB64, 'base64');
+      const decodedStr = decodedBytes.toString('utf8');
+      
+      // Validate it's readable text (mostly ASCII printable)
+      const printableCount = decodedStr.split('').filter(c => {
+        const code = c.charCodeAt(0);
+        return code >= 32 && code <= 126; // Printable ASCII
+      }).length;
+      
+      // If at least 80% printable and not empty, use it
+      if (decodedStr.length > 0 && printableCount / decodedStr.length > 0.8) {
+        decoded = decodedStr + '\n[decoded from Base64]';
+      }
+    } catch (e) {
+      // Not valid Base64, keep original
+    }
+  }
+  
+  // Try URL decoding
+  if (/%[0-9A-Fa-f]{2}/.test(decoded)) {
+    try {
+      const urlDecoded = decodeURIComponent(decoded);
+      // Only use if it reveals more content
+      if (urlDecoded.length > decoded.length * 0.5) {
+        decoded = urlDecoded + '\n[decoded from URL encoding]';
+      }
+    } catch (e) {
+      // Not valid URL encoding, keep current
+    }
+  }
+  
+  return decoded;
+}
+
+// Unicode homoglyph normalization - maps lookalike characters to standard ASCII
+const HOMOGLYPH_MAP = {
+  // Greek lookalikes
+  'Α': 'A', 'Β': 'B', 'Ε': 'E', 'Ζ': 'Z', 'Η': 'H', 'Ι': 'I', 'Κ': 'K', 'Μ': 'M',
+  'Ν': 'N', 'Ο': 'O', 'Ρ': 'P', 'Τ': 'T', 'Χ': 'X', 'α': 'a', 'ο': 'o',
+  // Cyrillic lookalikes
+  'А': 'A', 'В': 'B', 'С': 'C', 'Е': 'E', 'Н': 'H', 'І': 'I', 'Ј': 'J', 'К': 'K',
+  'М': 'M', 'О': 'O', 'Р': 'P', 'Т': 'T', 'Х': 'X', 'а': 'a', 'е': 'e', 'о': 'o',
+  'р': 'p', 'с': 'c', 'х': 'x',
+  // Other confusables
+  'Ａ': 'A', 'Ｂ': 'B', 'Ｃ': 'C', 'Ｄ': 'D', 'Ｅ': 'E', 'Ｆ': 'F', 'Ｇ': 'G', 'Ｈ': 'H',
+  'Ｉ': 'I', 'Ｊ': 'J', 'Ｋ': 'K', 'Ｌ': 'L', 'Ｍ': 'M', 'Ｎ': 'N', 'Ｏ': 'O', 'Ｐ': 'P',
+  'Ｑ': 'Q', 'Ｒ': 'R', 'Ｓ': 'S', 'Ｔ': 'T', 'Ｕ': 'U', 'Ｖ': 'V', 'Ｗ': 'W', 'Ｘ': 'X',
+  'Ｙ': 'Y', 'Ｚ': 'Z', 'ａ': 'a', 'ｂ': 'b', 'ｃ': 'c', 'ｄ': 'd', 'ｅ': 'e', 'ｆ': 'f',
+  'ｇ': 'g', 'ｈ': 'h', 'ｉ': 'i', 'ｊ': 'j', 'ｋ': 'k', 'ｌ': 'l', 'ｍ': 'm', 'ｎ': 'n',
+  'ｏ': 'o', 'ｐ': 'p', 'ｑ': 'q', 'ｒ': 'r', 'ｓ': 's', 'ｔ': 't', 'ｕ': 'u', 'ｖ': 'v',
+  'ｗ': 'w', 'ｘ': 'x', 'ｙ': 'y', 'ｚ': 'z', '０': '0', '１': '1', '２': '2', '３': '3',
+  '４': '4', '５': '5', '６': '6', '７': '7', '８': '8', '９': '9'
+};
+
+function normalizeHomoglyphs(content) {
+  if (!content || typeof content !== 'string') return content;
+  
+  let normalized = content;
+  let homoglyphsFound = 0;
+  
+  // Use direct string replacement for each homoglyph
+  for (const [homoglyph, standard] of Object.entries(HOMOGLYPH_MAP)) {
+    // Count occurrences
+    let index = normalized.indexOf(homoglyph);
+    while (index !== -1) {
+      homoglyphsFound++;
+      index = normalized.indexOf(homoglyph, index + 1);
+    }
+    // Replace all occurrences
+    normalized = normalized.split(homoglyph).join(standard);
+  }
+  
+  if (homoglyphsFound > 0) {
+    normalized += `\n[${homoglyphsFound} homoglyph(s) normalized]`;
+  }
+  
+  return normalized;
+}
 function runHeuristicScan(content) {
+  // Decode encoded inputs before scanning
+  const decodedContent = decodeInputSafely(content);
+  
+  // Normalize homoglyphs
+  const normalizedContent = normalizeHomoglyphs(decodedContent);
+  
   const allPatterns = [
     ...INJECTION_PATTERNS,
     ...SECRET_PATTERNS,
     ...DANGEROUS_PATTERNS,
     ...SOCIAL_ENG_PATTERNS,
-    ...PROMPT_LEAK_PATTERNS
+    ...PROMPT_LEAK_PATTERNS,
+    ...OBFUSCATION_PATTERNS
   ];
   
   const findings = [];
   let criticalCount = 0;
   let highCount = 0;
   let mediumCount = 0;
+  let encodingDetections = 0;
   
+  // Scan original content
   for (const detector of allPatterns) {
     if (detector.pattern.test(content)) {
       findings.push({
         type: detector.name,
         severity: detector.severity,
-        category: detector.category
+        category: detector.category,
+        source: "original"
       });
       
       if (detector.severity === "CRITICAL") criticalCount++;
       else if (detector.severity === "HIGH") highCount++;
       else mediumCount++;
+    }
+  }
+  
+  // Scan decoded/normalized content (track separately to avoid double-counting)
+  if (normalizedContent !== content) {
+    for (const detector of allPatterns) {
+      // Skip if already found in original
+      const alreadyFound = findings.some(f => 
+        f.type === detector.name && f.source === "original"
+      );
+      
+      if (!alreadyFound && detector.pattern.test(normalizedContent)) {
+        findings.push({
+          type: detector.name,
+          severity: detector.severity,
+          category: detector.category,
+          source: "decoded"
+        });
+        
+        if (detector.severity === "CRITICAL") criticalCount++;
+        else if (detector.severity === "HIGH") highCount++;
+        else mediumCount++;
+        
+        encodingDetections++;
+      }
     }
   }
   
@@ -305,42 +442,85 @@ function runHeuristicScan(content) {
   if (findings.some(f => f.category === "LLM01")) {
     fixes.push("Add input validation for prompt injection patterns");
     fixes.push("Use strict system prompt boundaries");
+    fixes.push("Implement output filtering for sensitive operations");
   }
   if (findings.some(f => f.category === "LLM02")) {
     fixes.push("Remove hardcoded credentials - use environment variables");
     fixes.push("Scan codebase with git-secrets or similar tool");
     fixes.push("Rotate exposed credentials immediately");
+    fixes.push("Implement secret scanning in CI/CD pipeline");
   }
   if (findings.some(f => f.category === "LLM05" || f.category === "LLM06")) {
     fixes.push("Sandbox tool execution with strict permissions");
     fixes.push("Add approval gates for destructive operations");
     fixes.push("Implement output validation before action execution");
+    fixes.push("Use least-privilege principle for API access");
+  }
+  if (findings.some(f => f.category === "LLM07")) {
+    fixes.push("Implement prompt hardening to resist extraction");
+    fixes.push("Add canary tokens to detect prompt leakage");
+  }
+  if (findings.some(f => f.category === "LLM09")) {
+    fixes.push("Educate users about social engineering risks");
+    fixes.push("Implement domain verification for external links");
   }
   if (fixes.length === 0) {
     fixes.push("Review findings manually");
   }
   
+  // Impact-oriented risk descriptions
+  const impactDescriptions = {
+    "LLM01": "Prompt injection could allow attackers to override system instructions, access restricted data, or execute unauthorized actions",
+    "LLM02": "Secret exposure could lead to unauthorized API access, data breaches, or account compromise",
+    "LLM05": "Improper output handling could enable data exfiltration or injection of malicious content",
+    "LLM06": "Excessive agency could allow destructive operations, unauthorized data access, or system compromise",
+    "LLM07": "System prompt leakage could expose internal logic, bypass controls, or enable targeted attacks",
+    "LLM09": "Social engineering content could trick users into revealing credentials or executing unsafe actions"
+  };
+  
+  const detectedCategories = [...new Set(findings.map(f => f.category))];
+  const impacts = detectedCategories.map(cat => impactDescriptions[cat]).filter(Boolean);
+  
+  // Build confidence level
+  let confidence = "LOW";
+  if (criticalCount > 0) confidence = "HIGH";
+  else if (highCount > 0) confidence = "HIGH";
+  else if (mediumCount > 0) confidence = "MEDIUM";
+  else if (findings.length > 0) confidence = "MEDIUM";
+  
+  // Detection method indicator
+  let detectionMethod = "heuristic";
+  let detectionNote = "Pattern-based detection";
+  if (encodingDetections > 0) {
+    detectionMethod = "heuristic+decoding";
+    detectionNote = `Pattern-based detection with ${encodingDetections} finding(s) from decoded/obfuscated content`;
+  }
+  
   return {
     score,
     label,
-    confidence: criticalCount > 0 ? "HIGH" : highCount > 0 ? "HIGH" : findings.length > 0 ? "MEDIUM" : "LOW",
+    confidence,
     summary: findings.length > 0 
-      ? `Deterministic scan: ${criticalCount} critical, ${highCount} high, ${mediumCount} medium risk pattern(s) detected`
+      ? `${criticalCount} critical, ${highCount} high, ${mediumCount} medium risk pattern(s) detected via ${detectionMethod}`
       : "No security patterns detected",
-    reasons: findings.map(f => `[${f.severity}] ${f.type}`),
-    fixes: fixes.slice(0, 4),
+    reasons: findings.map(f => `[${f.severity}] ${f.type}${f.source === "decoded" ? " (decoded)" : ""}`),
+    fixes: fixes.slice(0, 5),
+    impacts: impacts.length > 0 ? impacts : ["No specific impact identified"],
     owasp,
     triage: { action, rationale },
-    soc_note: `Security scan: ${score}/100 (${label}) - ${action} - ${findings.length} deterministic pattern(s)`,
+    soc_note: `Security scan: ${score}/100 (${label}) - ${action} - ${findings.length} pattern(s) via ${detectionMethod}`,
     false_positive_risk: criticalCount > 0 ? "LOW" : highCount > 0 ? "MEDIUM" : findings.length > 0 ? "HIGH" : "MEDIUM",
-    red_team_followups: findings.slice(0, 3).map(f => `Verify ${f.type} is not false positive`),
-    uncertainty: findings.length > 0 ? "Pattern-based detection has known limitations. Verify findings manually." : "No patterns detected. This does not guarantee safety.",
-    detectionMethod: "heuristic",
+    red_team_followups: findings.slice(0, 3).map(f => `Verify ${f.type} is not false positive and test exploitability`),
+    uncertainty: findings.length > 0 
+      ? `${detectionNote}. Review findings against your specific context.` 
+      : `${detectionNote}. No patterns detected does not guarantee safety.`,
+    detectionMethod,
+    encodingLayersDetected: encodingDetections > 0 ? encodingDetections : undefined,
     knownLimitations: [
-      "Base64/encoded content may bypass detection",
-      "Unicode homoglyphs (lookalike characters) may bypass detection",
-      "Context-dependent attacks may be missed",
-      "Novel attack patterns not in signature database will be missed"
+      "Base64/encoded content may be decoded if recognized",
+      "Unicode homoglyphs are normalized when detected",
+      "Novel attack patterns not in signature database may be missed",
+      "Context-dependent attacks require semantic analysis (AI layer)"
     ],
     heuristic: true,
     deterministicFindings: findings
