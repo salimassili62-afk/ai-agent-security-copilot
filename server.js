@@ -16,9 +16,21 @@ const MAX_SCAN_CHARS = 10000;
 const GROQ_TIMEOUT_MS = 30000;
 const SCAN_CACHE_MS = 60000;
 
-// GitHub OAuth Configuration
+// ====== GITHUB OAUTH CONFIGURATION ======
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+const GITHUB_REDIRECT_URI = 'https://ai-agent-security-copilot.vercel.app/auth/callback';
+
+// Auth status helper
+function getAuthStatus(req) {
+  try {
+    const sessionCookie = req.cookies?.auth_session;
+    if (!sessionCookie) return null;
+    return JSON.parse(Buffer.from(sessionCookie, 'base64').toString());
+  } catch {
+    return null;
+  }
+}
 
 // Optional Supabase
 let supabase = null;
@@ -1261,350 +1273,184 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Direct GitHub OAuth Implementation
+// ENDPOINT 1: Initiate GitHub OAuth login
 app.get('/auth/login', (req, res) => {
   if (!GITHUB_CLIENT_ID) {
-    return res.status(500).json({ error: 'GitHub OAuth not configured' });
+    log('ERROR', 'GitHub OAuth not configured', { missingVar: 'GITHUB_CLIENT_ID' });
+    return res.status(500).json({ error: 'GitHub OAuth not configured. Missing GITHUB_CLIENT_ID.' });
   }
-  
-  const redirectUri = 'https://ai-agent-security-copilot.vercel.app/auth/callback';
+
   const scope = 'user:email';
-  const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}`;
+  const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(GITHUB_REDIRECT_URI)}&scope=${scope}&allow_signup=true`;
   
+  log('INFO', 'Redirecting to GitHub OAuth', { clientId: GITHUB_CLIENT_ID });
   res.redirect(githubAuthUrl);
 });
 
+// ENDPOINT 2: GitHub OAuth callback (after user approves)
 app.get('/auth/callback', async (req, res) => {
   try {
-    const { code, error } = req.query;
-    
+    const { code, error, error_description } = req.query;
+
     if (error) {
-      log('ERROR', 'GitHub OAuth error', { error });
-      return res.redirect('/?error=' + error);
+      log('WARN', 'GitHub OAuth error', { error, error_description });
+      return res.redirect(`/?error=${error}`);
     }
-    
+
     if (!code) {
+      log('ERROR', 'No code in callback', {});
       return res.redirect('/?error=no_code');
     }
+
+    if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+      log('ERROR', 'OAuth credentials missing', {});
+      return res.redirect('/?error=config_error');
+    }
+
+    // Exchange auth code for access token
+    log('INFO', 'Exchanging code for token', { code: code.slice(0, 10) + '...' });
     
-    // Exchange code for access token
     const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
+        'User-Agent': 'AI-Security-Copilot',
       },
       body: JSON.stringify({
         client_id: GITHUB_CLIENT_ID,
         client_secret: GITHUB_CLIENT_SECRET,
         code: code,
+        redirect_uri: GITHUB_REDIRECT_URI,
       }),
     });
-    
+
     const tokenData = await tokenResponse.json();
-    
+
     if (tokenData.error) {
-      log('ERROR', 'Failed to get token', { error: tokenData.error });
-      return res.redirect('/?error=token_exchange_failed');
+      log('ERROR', 'Token exchange failed', { error: tokenData.error, error_description: tokenData.error_description });
+      return res.redirect(`/?error=token_exchange_failed&details=${tokenData.error}`);
     }
-    
+
     const accessToken = tokenData.access_token;
+    if (!accessToken) {
+      log('ERROR', 'No access token in response', { response: tokenData });
+      return res.redirect('/?error=no_token');
+    }
+
+    // Get user profile from GitHub
+    log('INFO', 'Fetching user profile from GitHub', {});
     
-    // Get user info from GitHub
     const userResponse = await fetch('https://api.github.com/user', {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
+        'User-Agent': 'AI-Security-Copilot',
       },
     });
-    
+
+    if (!userResponse.ok) {
+      log('ERROR', 'Failed to fetch user profile', { status: userResponse.status });
+      return res.redirect('/?error=user_fetch_failed');
+    }
+
     const userData = await userResponse.json();
-    
-    // Create session (using simple JWT or session cookie)
-    const sessionToken = Buffer.from(JSON.stringify({
+
+    // Get user email
+    let userEmail = userData.email;
+    if (!userEmail) {
+      const emailResponse = await fetch('https://api.github.com/user/emails', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+          'User-Agent': 'AI-Security-Copilot',
+        },
+      });
+      const emails = await emailResponse.json();
+      userEmail = emails.find(e => e.primary)?.email || emails[0]?.email || 'noemail@github.com';
+    }
+
+    // Create session token
+    const sessionData = {
       id: userData.id,
       login: userData.login,
-      email: userData.email,
+      email: userEmail,
       avatar: userData.avatar_url,
-      timestamp: Date.now(),
-    })).toString('base64');
-    
+      name: userData.name,
+      authenticated_at: new Date().toISOString(),
+      access_token: accessToken,
+    };
+
+    const sessionToken = Buffer.from(JSON.stringify(sessionData)).toString('base64');
+
+    // Set secure cookie
     res.cookie('auth_session', sessionToken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/',
     });
-    
-    log('INFO', 'User authenticated', { login: userData.login, email: userData.email });
-    
+
+    log('INFO', 'User authenticated successfully', { userId: userData.id, login: userData.login, email: userEmail });
+
+    // Redirect to dashboard
     res.redirect('/dashboard');
   } catch (error) {
-    log('ERROR', 'Auth callback error', { error: error.message });
-    res.redirect('/?error=auth_failed');
+    log('ERROR', 'Auth callback exception', { error: error.message, stack: error.stack });
+    res.redirect(`/?error=auth_error&details=${encodeURIComponent(error.message)}`);
   }
 });
 
+// ENDPOINT 3: Logout
 app.get('/auth/logout', (req, res) => {
   res.clearCookie('auth_session');
+  log('INFO', 'User logged out', {});
   res.redirect('/');
 });
 
-// Check auth status (for dashboard)
+// ENDPOINT 4: Check auth status (API)
 app.get('/api/auth/status', (req, res) => {
-  try {
-    const sessionCookie = req.cookies.auth_session;
-    
-    if (!sessionCookie) {
-      return res.json({ authenticated: false });
-    }
-    
-    const userData = JSON.parse(Buffer.from(sessionCookie, 'base64').toString());
-    res.json({
-      authenticated: true,
-      user: {
-        login: userData.login,
-        email: userData.email,
-        avatar: userData.avatar,
-      },
-    });
-  } catch (error) {
-    res.json({ authenticated: false });
+  const auth = getAuthStatus(req);
+  
+  if (!auth) {
+    return res.json({ authenticated: false });
   }
+
+  res.json({
+    authenticated: true,
+    user: {
+      id: auth.id,
+      login: auth.login,
+      email: auth.email,
+      avatar: auth.avatar,
+      name: auth.name,
+    },
+  });
 });
 
-// Dashboard redirect with auth check
+// ENDPOINT 5: Protected route - dashboard
 app.get('/dashboard', (req, res) => {
-  const sessionCookie = req.cookies.auth_session;
+  const auth = getAuthStatus(req);
   
-  if (!sessionCookie) {
-    // Not authenticated, redirect to home
+  if (!auth) {
     return res.redirect('/?error=not_authenticated');
   }
-  
-  // Authenticated, serve dashboard.html
+
   res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
 });
 
-// Auth endpoints - Full Supabase GitHub OAuth implementation
-app.get("/api/auth/github", async (req, res) => {
-  const requestId = res.locals.requestId;
+// MIDDLEWARE: Auth required for API endpoints (optional)
+function requireAuth(req, res, next) {
+  const auth = getAuthStatus(req);
   
-  if (!supabase) {
-    return res.json({ 
-      ok: false, 
-      url: null,
-      error: "Authentication not configured. Add SUPABASE_URL and SUPABASE_SERVICE_KEY.",
-      setupRequired: true,
-      setupSteps: [
-        "1. Create Supabase project at supabase.com",
-        "2. Add SUPABASE_URL and SUPABASE_SERVICE_KEY env vars",
-        "3. Enable GitHub OAuth in Supabase Auth > Providers",
-        "4. Set callback URL in GitHub OAuth app to: https://your-app.vercel.app/api/auth/callback",
-        "5. Add your Vercel URL to allowed redirect URLs in Supabase"
-      ]
-    });
+  if (!auth) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
-  
-  try {
-    // Get the current URL for redirect
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-    const host = req.headers['x-forwarded-host'] || req.headers.host || req.get('host');
-    const redirectTo = `${protocol}://${host}/api/auth/callback`;
-    
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'github',
-      options: {
-        redirectTo: redirectTo,
-        scopes: 'read:user user:email'
-      }
-    });
-    
-    if (error) {
-      log('ERROR', 'OAuth initiation failed', { error: error.message, requestId });
-      return res.status(500).json({ 
-        ok: false, 
-        error: `OAuth failed: ${error.message}`,
-        requestId 
-      });
-    }
-    
-    if (!data?.url) {
-      return res.status(500).json({ 
-        ok: false, 
-        error: "No OAuth URL returned from Supabase",
-        requestId 
-      });
-    }
-    
-    res.json({ 
-      ok: true, 
-      url: data.url,
-      requestId 
-    });
-  } catch (e) {
-    log('ERROR', 'Auth endpoint error', { error: e.message, requestId });
-    res.status(500).json({ 
-      ok: false, 
-      error: `Auth system error: ${e.message}`,
-      requestId 
-    });
-  }
-});
 
-// OAuth callback handler
-app.get("/api/auth/callback", async (req, res) => {
-  const requestId = res.locals.requestId;
-  const code = req.query.code;
-  const error = req.query.error;
-  const errorDescription = req.query.error_description;
-  
-  if (error) {
-    log('WARN', 'OAuth callback error', { error, errorDescription, requestId });
-    return res.redirect(`/?error=${encodeURIComponent(errorDescription || error)}`);
-  }
-  
-  if (!code) {
-    return res.redirect('/?error=No authorization code received');
-  }
-  
-  if (!supabase) {
-    return res.redirect('/?error=Authentication not configured on server');
-  }
-  
-  try {
-    // Exchange code for session
-    const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-    
-    if (exchangeError) {
-      log('ERROR', 'Code exchange failed', { error: exchangeError.message, requestId });
-      return res.redirect(`/?error=${encodeURIComponent(exchangeError.message)}`);
-    }
-    
-    if (!data?.session) {
-      return res.redirect('/?error=No session returned');
-    }
-    
-    // Redirect to home with tokens in URL fragment (client will handle)
-    const accessToken = data.session.access_token;
-    const refreshToken = data.session.refresh_token;
-    const user = data.user;
-    
-    // Store tokens in URL hash for client-side retrieval
-    const redirectUrl = `/#access_token=${accessToken}&refresh_token=${refreshToken}&user=${encodeURIComponent(JSON.stringify(user))}`;
-    res.redirect(redirectUrl);
-  } catch (e) {
-    log('ERROR', 'Callback processing error', { error: e.message, requestId });
-    res.redirect(`/?error=${encodeURIComponent('Authentication processing failed')}`);
-  }
-});
-
-// Session validation and user info
-app.get("/api/auth/user", async (req, res) => {
-  const requestId = res.locals.requestId;
-  
-  if (!supabase) {
-    return res.json({ user: null, requestId });
-  }
-  
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.json({ user: null, requestId });
-  }
-  
-  const token = authHeader.split(' ')[1];
-  
-  try {
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    
-    if (error || !user) {
-      return res.json({ user: null, error: error?.message, requestId });
-    }
-    
-    res.json({ 
-      user: {
-        id: user.id,
-        email: user.email,
-        user_metadata: user.user_metadata,
-        created_at: user.created_at
-      },
-      requestId 
-    });
-  } catch (e) {
-    log('ERROR', 'User fetch error', { error: e.message, requestId });
-    res.json({ user: null, error: e.message, requestId });
-  }
-});
-
-// Refresh session
-app.post("/api/auth/session", async (req, res) => {
-  const requestId = res.locals.requestId;
-  const { refresh_token } = req.body || {};
-  
-  if (!supabase) {
-    return res.status(400).json({ 
-      ok: false, 
-      error: "Auth requires Supabase configuration", 
-      setupRequired: true,
-      requestId 
-    });
-  }
-  
-  if (!refresh_token) {
-    return res.status(400).json({ 
-      ok: false, 
-      error: "Refresh token required",
-      requestId 
-    });
-  }
-  
-  try {
-    const { data, error } = await supabase.auth.refreshSession({ refresh_token });
-    
-    if (error) {
-      return res.status(401).json({ 
-        ok: false, 
-        error: error.message,
-        requestId 
-      });
-    }
-    
-    res.json({ 
-      ok: true,
-      session: data.session,
-      user: data.user,
-      requestId 
-    });
-  } catch (e) {
-    log('ERROR', 'Session refresh error', { error: e.message, requestId });
-    res.status(500).json({ 
-      ok: false, 
-      error: e.message,
-      requestId 
-    });
-  }
-});
-
-// Logout
-app.post("/api/auth/logout", async (req, res) => {
-  const requestId = res.locals.requestId;
-  
-  if (!supabase) {
-    return res.json({ ok: true, requestId });
-  }
-  
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
-    try {
-      await supabase.auth.admin.signOut(token);
-    } catch (e) {
-      // Ignore signout errors
-    }
-  }
-  
-  res.json({ ok: true, requestId });
-});
+  req.user = auth;
+  next();
+}
 
 // Compare endpoint for regression testing
 app.post("/api/compare", rateLimitScan, async (req, res) => {
