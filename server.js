@@ -9,6 +9,7 @@ const cookieParser = require("cookie-parser");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_VERSION = "2.3.0";
+const APP_NAME = "Sentinel prime";
 
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
@@ -1882,7 +1883,7 @@ if (require.main === module) {
   }, SCAN_CACHE_MS);
   
   app.listen(PORT, () => {
-    log('INFO', `AI Security Copilot v${APP_VERSION} started on port ${PORT}`);
+    log('INFO', `${APP_NAME} v${APP_VERSION} started on port ${PORT}`);
     log('INFO', `Groq API: ${process.env.GROQ_API_KEY ? '✅ configured' : '❌ not configured'}`);
     log('INFO', `Supabase Auth: ${supabase ? '✅ enabled' : '❌ disabled'}`);
   });

@@ -1,12 +1,12 @@
-# AI Security Copilot
+# Sentinel prime
 
 **[🔗 Live Demo](https://ai-agent-security-copilot.vercel.app)** | **[Pricing](pricing.html)** | **[Dashboard](/dashboard)**
 
-**Security regression testing for LLM prompts and agents.**
+**Continuous security regression testing for AI applications.**
 
 Stop wondering "did this change make my prompt less safe?" Get a clear answer in 2 seconds.
 
-![AI Security Copilot Demo](screenshots/demo-scan.png)
+![Sentinel prime Demo](screenshots/demo-scan.png)
 
 ## Why This Exists
 

@@ -2,7 +2,7 @@
   "name": "ai-security-copilot",
   "version": "2.0.0",
   "private": true,
-  "description": "Security regression testing for LLM prompts and agents",
+  "description": "Continuous security regression testing for AI applications",
   "main": "server.js",
   "bin": {
     "ai-security-scan": "./bin/cli.js"
