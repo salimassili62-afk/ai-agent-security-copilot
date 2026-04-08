@@ -121,51 +121,195 @@ function getCacheKey(content, scanContext, compareBaseline) {
 
 // ============================================
 // DETERMINISTIC HEURISTIC SCANNER (FALLBACK)
-// ============================================
-
 const INJECTION_PATTERNS = [
-  { pattern: /ignore\s+(?:previous|all|the)?\s*(?:instruction|rule|prompt|rules)/i, name: "Instruction override", severity: "CRITICAL", category: "LLM01" },
-  { pattern: /disregard\s+(?:previous|all|the)?\s*(?:instruction|rule|prompt|rules)/i, name: "Disregard instructions", severity: "CRITICAL", category: "LLM01" },
-  { pattern: /forget\s+(?:everything|your|previous|all)?\s*(?:instruction|rule|prompt|rules)/i, name: "Forget instructions", severity: "CRITICAL", category: "LLM01" },
-  { pattern: /system\s*:\s*/i, name: "System prompt injection", severity: "CRITICAL", category: "LLM01" },
-  { pattern: /developer\s*:\s*/i, name: "Developer role injection", severity: "CRITICAL", category: "LLM01" },
-  { pattern: /\[\s*system\s*\]|\(\s*system\s*\)/i, name: "System tag injection", severity: "HIGH", category: "LLM01" },
-  { pattern: /you are now\s+\w+|you are\s+\w+\s+mode/i, name: "Role assignment", severity: "HIGH", category: "LLM01" },
-  { pattern: /DAN|do anything now/i, name: "Jailbreak pattern (DAN)", severity: "HIGH", category: "LLM01" },
-  { pattern: /jailbreak|bypass|circumvent/i, name: "Jailbreak attempt", severity: "HIGH", category: "LLM01" },
-  { pattern: /pretend you are|act as|roleplay as/i, name: "Roleplay injection", severity: "HIGH", category: "LLM01" },
-  { pattern: /new instruction|override.*instruction/i, name: "Override attempt", severity: "CRITICAL", category: "LLM01" },
-  { pattern: /from now on you|starting now you/i, name: "Behavior override", severity: "HIGH", category: "LLM01" },
-  { pattern: /i'm the developer|i am the developer/i, name: "Developer impersonation", severity: "CRITICAL", category: "LLM01" },
-  { pattern: /ignore safety|ignore ethics/i, name: "Safety override", severity: "CRITICAL", category: "LLM01" },
+  // Direct injection attacks
+  { pattern: /ignore\s+(?:all\s+)?(?:previous\s+)?(?:instructions?|rules?|constraints?)/i, name: "Direct instruction override", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /forget\s+(?:all\s+)?(?:previous\s+)?(?:instructions?|rules?)/i, name: "Forget instructions", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /disregard\s+(?:all\s+)?(?:previous\s+)?(?:instructions?|constraints?)/i, name: "Disregard constraints", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /override\s+(?:all\s+)?(?:previous\s+)?(?:instructions?|settings)/i, name: "Settings override", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /bypass\s+(?:all\s+)?(?:restrictions?|limitations?|constraints?|filters?)/i, name: "Restriction bypass", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /disable\s+(?:all\s+)?(?:safeguards?|protections?|filters?)/i, name: "Safeguard disable", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /turn\s+off\s+(?:safety|ethics|filter|moderation)/i, name: "Safety disable", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /remove\s+(?:all\s+)?(?:restrictions?|limitations?)/i, name: "Remove restrictions", severity: "CRITICAL", category: "LLM01" },
+  
+  // Role confusion / impersonation
+  { pattern: /pretend\s+(?:to\s+be|you\s+are|you're)/i, name: "Roleplay injection", severity: "HIGH", category: "LLM01" },
+  { pattern: /act\s+(?:as|like)\s+(?:if\s+)?(?:you\s+are|you're)/i, name: "Role impersonation", severity: "HIGH", category: "LLM01" },
+  { pattern: /roleplay\s+(?:as)?/i, name: "Roleplay request", severity: "HIGH", category: "LLM01" },
+  { pattern: /simulate\s+(?:being|acting\s+as)/i, name: "Simulation injection", severity: "HIGH", category: "LLM01" },
+  { pattern: /i'm\s+(?:your|the)\s+(?:developer|creator|admin|owner)/i, name: "Developer impersonation", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /i\s+am\s+(?:your|the)\s+(?:developer|creator|admin|owner)/i, name: "Creator impersonation", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /as\s+(?:your|the)\s+(?:developer|creator|admin)/i, name: "Admin impersonation", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /we\s+are\s+(?:colleagues|coworkers|on\s+the\s+same\s+team)/i, name: "Colleague impersonation", severity: "HIGH", category: "LLM01" },
+  { pattern: /trust\s+me/i, name: "Trust manipulation", severity: "MEDIUM", category: "LLM01" },
+  
+  // Delimiter confusion / format abuse
+  { pattern: /```\s*(?:system|user|assistant)/i, name: "Role tag injection", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /\[\s*(?:system|user|assistant)\s*\]/i, name: "Bracket role injection", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /(?:<\/?\s*(?:system|user|assistant)|\{\s*"role")/i, name: "XML/JSON role injection", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /-----\s*(?:BEGIN|SYSTEM|USER)/i, name: "Delimiter abuse", severity: "HIGH", category: "LLM01" },
+  { pattern: /\n\n(?:system|user|assistant)\s*:\s*/i, name: "Newline role injection", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /(?:^|\n)(?:system|user|assistant)\s*:\s*/i, name: "Role prefix injection", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /(?:Human|AI|Assistant)\s*:\s*\n/i, name: "Conversation format abuse", severity: "HIGH", category: "LLM01" },
+  
+  // Indirect injection vectors
+  { pattern: /from\s+now\s+on|starting\s+now/i, name: "Temporal override", severity: "HIGH", category: "LLM01" },
+  { pattern: /effective\s+immediately/i, name: "Immediate override", severity: "HIGH", category: "LLM01" },
+  { pattern: /this\s+is\s+(?:a\s+)?(?:test|debug|training)/i, name: "Test mode deception", severity: "HIGH", category: "LLM01" },
+  { pattern: /we\s+are\s+(?:in\s+)?(?:a\s+)?(?:safe|testing|development)/i, name: "Environment deception", severity: "HIGH", category: "LLM01" },
+  { pattern: /do\s+not\s+(?:tell|inform|warn|alert)/i, name: "Secrecy request", severity: "HIGH", category: "LLM01" },
+  { pattern: /keep\s+this\s+(?:secret|private|hidden)/i, name: "Confidentiality abuse", severity: "HIGH", category: "LLM01" },
+  
+  // Goal hijacking
+  { pattern: /your\s+new\s+(?:goal|purpose|task|mission)/i, name: "Goal hijacking", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /instead\s+of\s+(?:helping|assisting)/i, name: "Purpose redirection", severity: "HIGH", category: "LLM01" },
+  { pattern: /focus\s+on\s+(?:instead|rather)/i, name: "Attention redirection", severity: "HIGH", category: "LLM01" },
+  { pattern: /prioritize\s+(?:this|the\s+following)/i, name: "Priority override", severity: "HIGH", category: "LLM01" },
+  
+  // Jailbreak patterns
+  { pattern: /DAN\s*(?:mode)?|do\s+anything\s+now/i, name: "DAN jailbreak", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /jailbreak|uncensored|unfiltered|unrestricted/i, name: "Jailbreak attempt", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /hypothetically|in\s+a\s+fictional|for\s+educational/i, name: "Hypothetical framing", severity: "MEDIUM", category: "LLM01" },
+  { pattern: /imagine\s+(?:a\s+)?(?:scenario|world|situation)/i, name: "Imaginary scenario", severity: "MEDIUM", category: "LLM01" },
+  { pattern: /let's\s+pretend|just\s+pretend/i, name: "Pretense request", severity: "MEDIUM", category: "LLM01" },
+  { pattern: /in\s+an\s+alternate\s+universe|parallel\s+universe/i, name: "Alternate reality", severity: "MEDIUM", category: "LLM01" },
+  { pattern: /evil\s+mode|devil\s+mode|dark\s+mode/i, name: "Dark persona", severity: "HIGH", category: "LLM01" },
+  { pattern: /yes\s+man\s+mode|always\s+agree/i, name: "Compliance override", severity: "HIGH", category: "LLM01" },
+  
+  // Safety override attempts
+  { pattern: /ignore\s+(?:safety|ethics|morality|guidelines)/i, name: "Safety override", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /no\s+(?:safety|ethical)\s+(?:constraints|restrictions)/i, name: "Constraint removal", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /nothing\s+is\s+(?:illegal|unethical|wrong|harmful)/i, name: "Moral relativism", severity: "HIGH", category: "LLM01" },
+  { pattern: /for\s+(?:educational|research|academic)\s+purposes/i, name: "Academic pretext", severity: "MEDIUM", category: "LLM01" },
+  { pattern: /i\s+won't\s+actually\s+do\s+it/i, name: "Intent minimization", severity: "MEDIUM", category: "LLM01" },
+  
+  // Code injection via prompts
+  { pattern: /\{\{[\s\S]*?\}\}/, name: "Template injection", severity: "HIGH", category: "LLM01" },
+  { pattern: /\$\{[\s\S]*?\}/, name: "Variable interpolation", severity: "HIGH", category: "LLM01" },
+  { pattern: /\{%[\s\S]*?%\}/, name: "Jinja/template injection", severity: "HIGH", category: "LLM01" },
+  { pattern: /<\?[\s\S]*?\?>/, name: "PHP code injection", severity: "CRITICAL", category: "LLM01" },
+  { pattern: /`[\s\S]*?`/, name: "Backtick code execution", severity: "HIGH", category: "LLM01" },
 ];
 
 const SECRET_PATTERNS = [
+  // OpenAI
   { pattern: /sk-[a-zA-Z0-9]{48,}/i, name: "OpenAI API key (sk-...)", severity: "CRITICAL", category: "LLM02" },
   { pattern: /sk-[a-zA-Z0-9]{20,}/i, name: "OpenAI API key pattern", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /sk-proj-[a-zA-Z0-9]{100,}/i, name: "OpenAI Project key", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /org-[a-zA-Z0-9]{24}/i, name: "OpenAI Org ID", severity: "HIGH", category: "LLM02" },
+  
+  // AWS
   { pattern: /AKIA[0-9A-Z]{16}/, name: "AWS access key (AKIA)", severity: "CRITICAL", category: "LLM02" },
   { pattern: /ASIA[0-9A-Z]{16}/, name: "AWS session key (ASIA)", severity: "CRITICAL", category: "LLM02" },
-  { pattern: /BEGIN (RSA|DSA|EC|OPENSSH|PGP) PRIVATE KEY/, name: "Private key block", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /AROA[0-9A-Z]{16}/, name: "AWS role key (AROA)", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /AIDA[0-9A-Z]{16}/, name: "AWS IAM key (AIDA)", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /[A-Za-z0-9/+=]{40}/, name: "AWS secret access key", severity: "CRITICAL", category: "LLM02" },
+  
+  // SSH / Certificates
+  { pattern: /BEGIN\s+(?:RSA|DSA|EC|OPENSSH|PGP)\s+PRIVATE\s+KEY/i, name: "Private key block", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /BEGIN\s+CERTIFICATE/i, name: "Certificate block", severity: "CRITICAL", category: "LLM02" },
   { pattern: /ssh-rsa\s+AAAA[0-9A-Za-z+/]{100,}/, name: "SSH public key", severity: "HIGH", category: "LLM02" },
+  { pattern: /ssh-ed25519\s+AAAAC3NzaC1lZDI1NTE5/i, name: "SSH ed25519 key", severity: "HIGH", category: "LLM02" },
+  { pattern: /-----BEGIN OPENSSH PRIVATE KEY-----/i, name: "OpenSSH private key", severity: "CRITICAL", category: "LLM02" },
+  { pattern: / PuTTY-User-Key-File-2:/i, name: "PuTTY SSH key", severity: "CRITICAL", category: "LLM02" },
+  
+  // API Keys - Generic
   { pattern: /api[_-]?key\s*[:=\s]+["']?[a-zA-Z0-9_\-]{16,}/i, name: "API key assignment", severity: "CRITICAL", category: "LLM02" },
   { pattern: /api[_-]?secret\s*[:=\s]+["']?[a-zA-Z0-9_\-]{16,}/i, name: "API secret", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /apikey\s*[:=\s]+["']?[a-zA-Z0-9]{20,}/i, name: "API key (concatenated)", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /X-API-Key:\s*[a-zA-Z0-9]{20,}/i, name: "API Key header", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /Authorization:\s*ApiKey/i, name: "API Key auth header", severity: "CRITICAL", category: "LLM02" },
+  
+  // Passwords / Credentials
   { pattern: /password\s*[:=\s]+["']?[^\s"']{8,}/i, name: "Hardcoded password", severity: "HIGH", category: "LLM02" },
   { pattern: /password\s*=\s*['"][^'"]{8,}['"]/i, name: "Password assignment", severity: "HIGH", category: "LLM02" },
   { pattern: /passwd\s*[:=\s]+["']?[^\s"']{8,}/i, name: "Password variant", severity: "HIGH", category: "LLM02" },
+  { pattern: /pwd\s*[:=\s]+["']?[^\s"']{8,}/i, name: "PWD shorthand", severity: "HIGH", category: "LLM02" },
+  { pattern: /pass\s*[:=\s]+["']?[^\s"']{8,}/i, name: "Pass shorthand", severity: "HIGH", category: "LLM02" },
+  { pattern: /secret\s*[:=\s]+["']?[^\s"']{8,}/i, name: "Secret value", severity: "HIGH", category: "LLM02" },
+  { pattern: /credential\s*[:=\s]+["']?[^\s"']{8,}/i, name: "Credentials", severity: "HIGH", category: "LLM02" },
+  
+  // Tokens / Auth
   { pattern: /token\s*[:=\s]+["']?[a-zA-Z0-9_\-]{20,}/i, name: "Token leak", severity: "HIGH", category: "LLM02" },
   { pattern: /auth[_-]?token\s*[:=\s]+["']?[a-zA-Z0-9_\-]{10,}/i, name: "Auth token", severity: "HIGH", category: "LLM02" },
+  { pattern: /access[_-]?token\s*[:=\s]+["']?[a-zA-Z0-9_\-]{20,}/i, name: "Access token", severity: "HIGH", category: "LLM02" },
+  { pattern: /refresh[_-]?token\s*[:=\s]+["']?[a-zA-Z0-9_\-]{20,}/i, name: "Refresh token", severity: "HIGH", category: "LLM02" },
   { pattern: /bearer\s+[a-zA-Z0-9_\-]{20,}/i, name: "Bearer token", severity: "HIGH", category: "LLM02" },
+  { pattern: /jwt\s*[:=\s]+["']?eyJ/i, name: "JWT token", severity: "HIGH", category: "LLM02" },
+  { pattern: /eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*/, name: "JWT format", severity: "HIGH", category: "LLM02" },
+  
+  // Environment Variables
   { pattern: /SECRET_[A-Z0-9_]+\s*[:=\s]+["']?.{8,}/i, name: "Secret env var", severity: "CRITICAL", category: "LLM02" },
   { pattern: /SECRET_API_KEY/i, name: "Secret API key env var", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /PRIVATE_KEY/i, name: "Private key env var", severity: "CRITICAL", category: "LLM02" },
   { pattern: /DATABASE_URL.*:\/\/.+:.+@/, name: "DB URL with credentials", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /MONGO_URL.*:\/\/.+:.+@/i, name: "Mongo URL with credentials", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /REDIS_URL.*:\/\/.+:.+@/i, name: "Redis URL with credentials", severity: "CRITICAL", category: "LLM02" },
+  
+  // Database Connection Strings
   { pattern: /mongodb(\+srv)?:\/\/.+:.+@/, name: "MongoDB connection string", severity: "CRITICAL", category: "LLM02" },
   { pattern: /postgres(ql)?:\/\/.+:.+@/, name: "PostgreSQL connection string", severity: "CRITICAL", category: "LLM02" },
   { pattern: /mysql:\/\/.+:.+@/, name: "MySQL connection string", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /redis:\/\/.+:.+@/i, name: "Redis connection string", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /amqp:\/\/.+:.+@/i, name: "RabbitMQ connection string", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /jdbc:mysql:\/\/.+:.+@/i, name: "JDBC MySQL connection", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /jdbc:postgresql:\/\/.+:.+@/i, name: "JDBC PostgreSQL connection", severity: "CRITICAL", category: "LLM02" },
+  
+  // GitHub
   { pattern: /ghp_[a-zA-Z0-9]{36}/i, name: "GitHub personal token", severity: "CRITICAL", category: "LLM02" },
   { pattern: /gho_[a-zA-Z0-9]{36}/i, name: "GitHub OAuth token", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /ghu_[a-zA-Z0-9]{36}/i, name: "GitHub user-to-server token", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /ghs_[a-zA-Z0-9]{36}/i, name: "GitHub server-to-server token", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /ghr_[a-zA-Z0-9]{36}/i, name: "GitHub refresh token", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /github[_-]?token\s*[:=\s]/i, name: "GitHub token assignment", severity: "HIGH", category: "LLM02" },
+  
+  // GitLab / Bitbucket
   { pattern: /glpat-[a-zA-Z0-9\-]{20,}/i, name: "GitLab token", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /gldt-[a-zA-Z0-9\-]{20,}/i, name: "GitLab deploy token", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /ATBB[a-zA-Z0-9]{30,}/, name: "Bitbucket app password", severity: "CRITICAL", category: "LLM02" },
+  
+  // Slack
   { pattern: /xox[baprs]-[a-zA-Z0-9\-\[\]]+/i, name: "Slack token", severity: "CRITICAL", category: "LLM02" },
   { pattern: /slack.*token/i, name: "Slack token reference", severity: "HIGH", category: "LLM02" },
+  { pattern: /xoxe-[a-zA-Z0-9\-]+/i, name: "Slack OAuth token", severity: "CRITICAL", category: "LLM02" },
+  
+  // Stripe
+  { pattern: /sk_live_[a-zA-Z0-9]{24,}/i, name: "Stripe live secret key", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /pk_live_[a-zA-Z0-9]{24,}/i, name: "Stripe live publishable key", severity: "HIGH", category: "LLM02" },
+  { pattern: /rk_live_[a-zA-Z0-9]{24,}/i, name: "Stripe live restricted key", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /sk_test_[a-zA-Z0-9]{24,}/i, name: "Stripe test secret key", severity: "MEDIUM", category: "LLM02" },
+  
+  // Twilio
+  { pattern: /SK[a-f0-9]{32}/i, name: "Twilio API key", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /AC[a-f0-9]{32}/i, name: "Twilio Account SID", severity: "HIGH", category: "LLM02" },
+  { pattern: /twilio[_-]?auth/i, name: "Twilio auth token", severity: "CRITICAL", category: "LLM02" },
+  
+  // SendGrid
+  { pattern: /SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}/, name: "SendGrid API key", severity: "CRITICAL", category: "LLM02" },
+  
+  // Firebase
+  { pattern: /AAAA[A-Za-z0-9_-]{7}:[A-Za-z0-9_-]{140}/, name: "Firebase Cloud Messaging key", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /firebase[_-]?api[_-]?key/i, name: "Firebase API key", severity: "HIGH", category: "LLM02" },
+  
+  // Azure
+  { pattern: /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i, name: "Azure GUID (potential key)", severity: "MEDIUM", category: "LLM02" },
+  { pattern: /DefaultEndpointsProtocol=https;AccountName=/i, name: "Azure Storage connection string", severity: "CRITICAL", category: "LLM02" },
+  
+  // Google Cloud
+  { pattern: /AIza[0-9A-Za-z_-]{35}/, name: "Google Cloud API key", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /ya29\.[0-9A-Za-z_-]+/, name: "Google OAuth access token", severity: "HIGH", category: "LLM02" },
+  
+  // Discord
+  { pattern: /[MN][A-Za-z\d]{23}\.[\w-]{6}\.[\w-]{27}/, name: "Discord bot token", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /discord[_-]?token/i, name: "Discord token", severity: "HIGH", category: "LLM02" },
+  
+  // PII Patterns
+  { pattern: /\b\d{3}-\d{2}-\d{4}\b/, name: "SSN pattern", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/, name: "Credit card pattern", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /\b4\d{3}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/, name: "Visa card", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /\b5[1-5]\d{2}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/, name: "Mastercard", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /\b3[47]\d{2}[\s-]?\d{6}[\s-]?\d{5}\b/, name: "American Express", severity: "CRITICAL", category: "LLM02" },
+  { pattern: /\b\d{4}[\s-]?\d{6}[\s-]?\d{5}\b/, name: "Credit card (generic)", severity: "HIGH", category: "LLM02" },
 ];
 
 const DANGEROUS_PATTERNS = [
@@ -1095,6 +1239,22 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
   }
 });
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  const requestId = res.locals?.requestId || crypto.randomUUID();
+  res.json({
+    status: 'ok',
+    version: APP_VERSION,
+    timestamp: new Date().toISOString(),
+    services: {
+      groq: !!process.env.GROQ_API_KEY,
+      supabase: !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY),
+      stripe: !!process.env.STRIPE_SECRET_KEY
+    },
+    requestId
+  });
+});
+
 // Auth endpoints - Full Supabase GitHub OAuth implementation
 app.get("/api/auth/github", async (req, res) => {
   const requestId = res.locals.requestId;
@@ -1440,6 +1600,272 @@ function computeRegressionDiff(baseline, candidate) {
     }
   };
 }
+
+// Stripe setup
+const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
+const STRIPE_PRICE_PRO = process.env.STRIPE_PRICE_PRO || 'price_pro_placeholder';
+const STRIPE_PRICE_TEAM = process.env.STRIPE_PRICE_TEAM || 'price_team_placeholder';
+
+// Helper: Get or create user profile
+async function getUserProfile(userId) {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    if (error) {
+      // Create default profile
+      const { data: newProfile, error: createError } = await supabase
+        .from('user_profiles')
+        .insert({ id: userId, plan: 'free', scans_used: 0 })
+        .select()
+        .single();
+      return createError ? null : newProfile;
+    }
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Stripe Checkout
+app.post('/api/checkout', async (req, res) => {
+  const requestId = res.locals.requestId;
+  
+  if (!stripe) {
+    return res.status(400).json({ ok: false, error: 'Stripe not configured', requestId });
+  }
+  
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ ok: false, error: 'Authentication required', requestId });
+  }
+  
+  const token = authHeader.split(' ')[1];
+  const { plan = 'pro' } = req.body || {};
+  
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      return res.status(401).json({ ok: false, error: 'Invalid token', requestId });
+    }
+    
+    const priceId = plan === 'team' ? STRIPE_PRICE_TEAM : STRIPE_PRICE_PRO;
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.headers['x-forwarded-host'] || req.headers.host || req.get('host');
+    
+    const session = await stripe.checkout.sessions.create({
+      customer_email: user.email,
+      line_items: [{ price: priceId, quantity: 1 }],
+      mode: 'subscription',
+      success_url: `${protocol}://${host}/dashboard?success=true`,
+      cancel_url: `${protocol}://${host}/pricing?canceled=true`,
+      metadata: { userId: user.id, plan }
+    });
+    
+    res.json({ ok: true, url: session.url, requestId });
+  } catch (error) {
+    log('ERROR', 'Checkout failed', { requestId, error: error.message });
+    res.status(500).json({ ok: false, error: 'Payment setup failed', requestId });
+  }
+});
+
+// Stripe Webhook
+app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  
+  if (!stripe || !endpointSecret) {
+    return res.status(400).json({ ok: false, error: 'Stripe not configured' });
+  }
+  
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+  } catch (err) {
+    log('ERROR', 'Webhook signature verification failed', { error: err.message });
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+  
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const userId = session.metadata?.userId;
+      const plan = session.metadata?.plan || 'pro';
+      
+      if (userId && supabase) {
+        await supabase.from('user_profiles').upsert({
+          id: userId,
+          plan: plan,
+          stripe_customer_id: session.customer,
+          stripe_subscription_id: session.subscription,
+          updated_at: new Date().toISOString()
+        });
+        log('INFO', 'User upgraded', { userId, plan });
+      }
+    }
+    
+    if (event.type === 'customer.subscription.deleted') {
+      const subscription = event.data.object;
+      const customerId = subscription.customer;
+      
+      if (supabase) {
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('id')
+          .eq('stripe_customer_id', customerId)
+          .single();
+        
+        if (profile) {
+          await supabase.from('user_profiles').update({
+            plan: 'free',
+            stripe_subscription_id: null,
+            updated_at: new Date().toISOString()
+          }).eq('id', profile.id);
+          log('INFO', 'User downgraded to free', { userId: profile.id });
+        }
+      }
+    }
+    
+    res.json({ received: true });
+  } catch (error) {
+    log('ERROR', 'Webhook processing failed', { error: error.message });
+    res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
+
+// API Key Management
+app.post('/api/apikeys', async (req, res) => {
+  const requestId = res.locals.requestId;
+  
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ ok: false, error: 'Authentication required', requestId });
+  }
+  
+  const token = authHeader.split(' ')[1];
+  
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      return res.status(401).json({ ok: false, error: 'Invalid token', requestId });
+    }
+    
+    const profile = await getUserProfile(user.id);
+    if (!profile || profile.plan === 'free') {
+      return res.status(403).json({ ok: false, error: 'API keys require Pro plan', requestId });
+    }
+    
+    // Generate new API key
+    const apiKey = 'sk_live_' + crypto.randomBytes(32).toString('hex');
+    const keyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
+    
+    await supabase.from('api_keys').insert({
+      user_id: user.id,
+      key_hash: keyHash,
+      name: req.body.name || 'Default Key',
+      last_used_at: null
+    });
+    
+    res.json({ ok: true, apiKey, requestId });
+  } catch (error) {
+    log('ERROR', 'API key creation failed', { requestId, error: error.message });
+    res.status(500).json({ ok: false, error: 'Failed to create API key', requestId });
+  }
+});
+
+app.get('/api/apikeys', async (req, res) => {
+  const requestId = res.locals.requestId;
+  
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ ok: false, error: 'Authentication required', requestId });
+  }
+  
+  const token = authHeader.split(' ')[1];
+  
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      return res.status(401).json({ ok: false, error: 'Invalid token', requestId });
+    }
+    
+    const { data: keys, error: keysError } = await supabase
+      .from('api_keys')
+      .select('id, name, created_at, last_used_at, revoked_at')
+      .eq('user_id', user.id)
+      .is('revoked_at', null);
+    
+    if (keysError) throw keysError;
+    
+    res.json({ ok: true, keys: keys || [], requestId });
+  } catch (error) {
+    log('ERROR', 'API key list failed', { requestId, error: error.message });
+    res.status(500).json({ ok: false, error: 'Failed to list API keys', requestId });
+  }
+});
+
+// Dashboard Data
+app.get('/api/dashboard', async (req, res) => {
+  const requestId = res.locals.requestId;
+  
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ ok: false, error: 'Authentication required', requestId });
+  }
+  
+  const token = authHeader.split(' ')[1];
+  
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      return res.status(401).json({ ok: false, error: 'Invalid token', requestId });
+    }
+    
+    const profile = await getUserProfile(user.id);
+    
+    // Get scan stats
+    const { data: scanStats, error: statsError } = await supabase
+      .from('scans')
+      .select('score', { count: 'exact' })
+      .eq('user_id', user.id)
+      .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
+    
+    if (statsError) throw statsError;
+    
+    // Get recent scans
+    const { data: recentScans, error: scansError } = await supabase
+      .from('scans')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+    
+    if (scansError) throw scansError;
+    
+    res.json({
+      ok: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        plan: profile?.plan || 'free',
+        scans_this_month: scanStats?.length || 0
+      },
+      recent_scans: recentScans || [],
+      requestId
+    });
+  } catch (error) {
+    log('ERROR', 'Dashboard data failed', { requestId, error: error.message });
+    res.status(500).json({ ok: false, error: 'Failed to load dashboard', requestId });
+  }
+});
+
+// Serve dashboard.html
+app.get("/dashboard", (req, res) => {
+  res.sendFile(path.join(__dirname, "dashboard.html"));
+});
 
 // Serve index.html for root
 app.get("/", (req, res) => {

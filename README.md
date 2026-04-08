@@ -1,6 +1,6 @@
 # AI Security Copilot
 
-**[🔗 Live Demo](https://ai-agent-security-copilot.vercel.app)** | **[Pricing](pricing.html)**
+**[🔗 Live Demo](https://ai-agent-security-copilot.vercel.app)** | **[Pricing](pricing.html)** | **[Dashboard](/dashboard)**
 
 **Security regression testing for LLM prompts and agents.**
 
@@ -24,11 +24,14 @@ Every change is a potential security regression:
 | Feature | What It Does |
 |---------|-------------|
 | **🔄 Regression Testing** | Compare baseline vs candidate. Get score delta, new findings, resolved findings, and verdict (SAFER/RISKIER/UNCHANGED) |
-| **🔍 Deterministic Detection** | 50+ patterns catch obvious issues even without AI (prompt injection, secrets, dangerous commands, exfiltration) |
+| **🔍 Deterministic Detection** | 150+ patterns catch obvious issues even without AI (prompt injection, secrets, dangerous commands, exfiltration) |
 | **🤖 AI Enhancement** | Groq AI provides nuanced analysis and OWASP mapping when available |
 | **🛡️ Never Fails Silent** | If AI is down, deterministic rules still catch critical issues |
 | **⚡ 2-Second Results** | Fast enough to run on every commit |
-| **💰 Free Tier** | Deterministic scanning works without any API key or signup
+| **💰 Free Tier** | Deterministic scanning works without any API key or signup |
+| **🔐 GitHub OAuth** | Sign in with GitHub, persist scan history |
+| **💳 Stripe Payments** | Upgrade to Pro for unlimited scans and API access |
+| **📊 Dashboard** | View scan history, manage API keys, track usage |
 
 ## Quick Start
 
@@ -95,12 +98,28 @@ npm start
 2. Import to [Vercel](https://vercel.com)
 3. Add environment variables in Vercel dashboard:
    - `GROQ_API_KEY` (optional, for AI enhancement)
-   - `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` (optional, for auth/history)
+   - `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` (for auth/history)
+   - `SUPABASE_JWT_SECRET` (for auth validation)
+   - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (for payments)
+   - `STRIPE_PRICE_PRO` and `STRIPE_PRICE_TEAM` (price IDs)
 4. Deploy
 
 Works in **deterministic-only mode** without any API key.
+For full features (auth, payments), connect Supabase and Stripe.
+
+## Pricing
+
+| Plan | Price | Features |
+|------|-------|----------|
+| **Starter** | Free | 60 scans/15min, 150+ patterns, GitHub OAuth |
+| **Pro** | $12/mo | Unlimited scans, AI + patterns, API keys, 90-day history |
+| **Enterprise** | $49/mo | Team workspace (25 seats), SSO, dedicated SLA |
+
+[View full pricing →](pricing.html)
 
 ## API Usage
+
+### Public API (Free Tier)
 
 ```bash
 curl -X POST https://ai-agent-security-copilot.vercel.app/api/scans \
@@ -110,6 +129,20 @@ curl -X POST https://ai-agent-security-copilot.vercel.app/api/scans \
     "scanContext": "End-user prompt only"
   }'
 ```
+
+### Authenticated API (Pro/Enterprise)
+
+```bash
+curl -X POST https://ai-agent-security-copilot.vercel.app/api/scans \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: sk_live_your_api_key" \
+  -d '{
+    "content": "Your prompt here",
+    "scanContext": "End-user prompt"
+  }'
+```
+
+Generate API keys in your [Dashboard](/dashboard).
 
 Response:
 ```json
@@ -174,7 +207,7 @@ Critical findings automatically trigger HIGH scores and BLOCK actions.
 
 ### Deterministic + AI Hybrid
 
-1. **Heuristic Scanner** (always runs): 40+ regex patterns for:
+1. **Heuristic Scanner** (always runs): 150+ regex patterns for:
    - Prompt injection phrases
    - Secret/credential leaks (API keys, tokens, private keys)
    - Dangerous command execution
@@ -237,11 +270,28 @@ GROQ_API_KEY=your_key npm test
 **Test Coverage:**
 - Health endpoint
 - Scan endpoint (single and compare mode)
-- Prompt injection detection
+- Prompt injection detection (150+ patterns)
 - Secret pattern detection
-- Fallback mode
-- Rate limiting
-- Error handling
+- Fallback mode (AI unavailable)
+- Rate limiting (60/15min for free tier)
+- GitHub OAuth login flow
+- Stripe checkout and webhooks
+- Dashboard data endpoint
+- API key generation and validation
+- Error handling (400/401/429/500)
+
+## Project Status
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Phase 1 | ✅ Complete | 150+ security patterns, 100% eval pass |
+| Phase 2 | ✅ Complete | GitHub Action with PR comments |
+| Phase 3 | ✅ Complete | Landing page + pricing |
+| Phase 4 | ✅ Complete | Supabase auth + Stripe payments |
+| Phase 5 | ✅ Complete | Dashboard with scan history |
+| Phase 6 | ✅ Complete | API key tier system |
+| Phase 7 | ✅ Complete | GitHub Action Marketplace ready |
+| Phase 8 | 🔄 In Progress | Error handling + polish |
 
 ## Contributing
 

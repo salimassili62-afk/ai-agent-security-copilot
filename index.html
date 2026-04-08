@@ -189,6 +189,98 @@
     }
     .modal-panel h2 { margin: 0 0 10px; font-size: 18px; }
     .modal-panel ul { margin: 8px 0 0; padding-left: 18px; }
+    .landing-hero {
+      min-height: calc(100vh - 64px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 80px 24px;
+      text-align: center;
+      background: 
+        radial-gradient(ellipse at top, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at bottom right, rgba(139, 92, 246, 0.1) 0%, transparent 40%);
+    }
+    .landing-hero h1 {
+      font-size: 56px;
+      font-weight: 800;
+      margin: 0 0 16px;
+      line-height: 1.1;
+      background: linear-gradient(135deg, #fff 0%, #60a5fa 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .landing-hero p {
+      font-size: 20px;
+      color: var(--muted);
+      max-width: 600px;
+      margin: 0 auto 40px;
+    }
+    .hero-cta {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .hero-cta .btn-large {
+      padding: 16px 32px;
+      font-size: 16px;
+      border-radius: 12px;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      max-width: 1000px;
+      width: 100%;
+      margin-top: 80px;
+    }
+    .feature-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      text-align: left;
+    }
+    .feature-card h3 {
+      font-size: 18px;
+      margin: 0 0 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .feature-card p {
+      font-size: 14px;
+      color: var(--muted);
+      margin: 0;
+    }
+    .social-proof {
+      margin-top: 60px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .scanner-section {
+      display: none;
+    }
+    .scanner-section.active {
+      display: block;
+    }
+    .landing-hero.hidden {
+      display: none;
+    }
+    .back-to-landing {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    .back-to-landing:hover {
+      color: var(--text);
+    }
     .trust { border-left: 3px solid var(--primary); padding-left: 12px; }
     .auth-bar {
       display: flex;
@@ -216,16 +308,74 @@
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="auth-bar">
-      <span id="authStatus"></span>
-      <a href="pricing.html" class="btn-ghost" style="margin-right: 8px; text-decoration: none; display: inline-block; padding: 6px 12px; font-size: 13px;">Pricing</a>
-      <span class="guest-badge" id="guestBadge" style="display:none; background: var(--border); color: var(--muted); padding: 4px 10px; border-radius: 999px; font-size: 12px; margin-right: 8px;">👤 Guest</span>
-      <button class="btn-ghost" id="loginBtn" style="display:none; font-size: 13px;">Sign in 🔜</button>
-      <button class="btn-ghost" id="logoutBtn" style="display:none;">Logout</button>
+  <!-- Landing Page Hero -->
+  <div class="landing-hero" id="landingHero">
+    <nav style="position: absolute; top: 0; left: 0; right: 0; padding: 20px 24px; display: flex; justify-content: space-between; align-items: center;">
+      <a href="/" style="display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 700; font-size: 18px;">
+        <div style="width: 32px; height: 32px; background: linear-gradient(135deg, var(--primary), #8b5cf6); border-radius: 8px; display: flex; align-items: center; justify-content: center;">🛡️</div>
+        AI Security Copilot
+      </a>
+      <div style="display: flex; gap: 24px;">
+        <a href="/docs" style="color: var(--muted); text-decoration: none; font-size: 14px;">Docs</a>
+        <a href="/github-action" style="color: var(--muted); text-decoration: none; font-size: 14px;">GitHub Action</a>
+        <a href="pricing.html" style="color: var(--muted); text-decoration: none; font-size: 14px;">Pricing</a>
+        <a href="https://github.com/salimassili62-afk/ai-agent-security-copilot" target="_blank" style="color: var(--muted); text-decoration: none; font-size: 14px;">GitHub</a>
+      </div>
+    </nav>
+    
+    <h1>Security regression testing<br>for AI applications</h1>
+    <p>Scan LLM prompts, agent traces, and model outputs for security risks. 150+ patterns covering OWASP LLM Top 10. AI-powered analysis with deterministic fallbacks.</p>
+    
+    <div class="hero-cta">
+      <button class="btn-primary btn-large" onclick="showScanner()">Try Free Scanner →</button>
+      <a href="pricing.html" class="btn-ghost btn-large" style="text-decoration: none; display: inline-flex; align-items: center;">View Pricing</a>
     </div>
-    <h1>AI Security Copilot</h1>
-    <p class="sub">The fastest way to scan LLM prompts for security risks. <strong>Free, open source, powered by Groq AI.</strong> <button type="button" class="btn-ghost small" id="helpBtn" style="margin-left:8px;">Shortcuts</button></p>
+    
+    <div class="features-grid">
+      <div class="feature-card">
+        <h3>🔍 150+ Security Patterns</h3>
+        <p>Injection detection, secret leaks, dangerous commands, prompt leaks, and more. Always-on deterministic scanning.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🤖 AI + Rules Hybrid</h3>
+        <p>LLM-powered analysis for nuanced threats, with regex-based fallbacks when AI is unavailable.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🔄 Regression Testing</h3>
+        <p>Compare baseline vs candidate prompts. Catch security regressions before they ship to production.</p>
+      </div>
+      <div class="feature-card">
+        <h3>⚡ GitHub Action</h3>
+        <p>CI/CD integration for automated scanning. Post PR comments with security findings.</p>
+      </div>
+      <div class="feature-card">
+        <h3>📊 OWASP LLM Top 10</h3>
+        <p>Full mapping to 2025 OWASP categories: Prompt Injection, Data Disclosure, Excessive Agency, and more.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🔐 Privacy First</h3>
+        <p>Scans run in memory. No data stored unless you sign in. Self-hostable open source core.</p>
+      </div>
+    </div>
+    
+    <div class="social-proof">
+      <p>Open source • Free tier available • No credit card required</p>
+    </div>
+  </div>
+
+  <!-- Scanner Section -->
+  <div class="scanner-section" id="scannerSection">
+    <div class="wrap">
+      <a href="#" class="back-to-landing" onclick="showLanding(); return false;">← Back to landing page</a>
+      <div class="auth-bar">
+        <span id="authStatus"></span>
+        <a href="pricing.html" class="btn-ghost" style="margin-right: 8px; text-decoration: none; display: inline-block; padding: 6px 12px; font-size: 13px;">Pricing</a>
+        <span class="guest-badge" id="guestBadge" style="display:none; background: var(--border); color: var(--muted); padding: 4px 10px; border-radius: 999px; font-size: 12px; margin-right: 8px;">👤 Guest</span>
+        <button class="btn-ghost" id="loginBtn" style="display:none; font-size: 13px;">Sign in 🔜</button>
+        <button class="btn-ghost" id="logoutBtn" style="display:none;">Logout</button>
+      </div>
+      <h1>AI Security Copilot</h1>
+      <p class="sub">The fastest way to scan LLM prompts for security risks. <strong>Free, open source, powered by Groq AI.</strong> <button type="button" class="btn-ghost small" id="helpBtn" style="margin-left:8px;">Shortcuts</button></p>
 
     <!-- How It Works Card -->
     <div class="card" style="background: linear-gradient(135deg, #111a2e 0%, #1a2542 100%); border-color: var(--primary);">
@@ -1484,6 +1634,24 @@ Schema:
       resetTriageUi();
       lastScanBundle = null;
     });
+
+    // Landing/Scanner view switching
+    function showScanner() {
+      document.getElementById('landingHero').classList.add('hidden');
+      document.getElementById('scannerSection').classList.add('active');
+      window.scrollTo(0, 0);
+    }
+    
+    function showLanding() {
+      document.getElementById('landingHero').classList.remove('hidden');
+      document.getElementById('scannerSection').classList.remove('active');
+      window.scrollTo(0, 0);
+    }
+    
+    // Check URL params for direct scanner access
+    if (window.location.search.includes('scanner') || window.location.search.includes('signup')) {
+      showScanner();
+    }
 
     renderList(reasonsList, [], "No scan yet.");
     renderList(fixesList, [], "No scan yet.");

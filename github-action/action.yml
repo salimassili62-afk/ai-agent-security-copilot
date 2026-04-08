@@ -1,0 +1,72 @@
+name: 'AI Security Copilot'
+description: 'Security regression testing for AI applications - scan LLM prompts, agent traces, and model outputs for security risks'
+author: 'AI Security Copilot Team'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  api-key:
+    description: 'API key for AI Security Copilot (optional - falls back to local scanning)'
+    required: false
+  scan-path:
+    description: 'Path to scan (file or directory)'
+    required: false
+    default: '.'
+  compare-baseline:
+    description: 'Baseline file to compare against for regression testing'
+    required: false
+  fail-on-high:
+    description: 'Fail PR if HIGH risk detections found'
+    required: false
+    default: 'true'
+  fail-on-critical:
+    description: 'Fail PR if CRITICAL risk detections found'
+    required: false
+    default: 'true'
+  include-patterns:
+    description: 'Glob patterns to include (comma-separated)'
+    required: false
+    default: '*.prompt,*.txt,*.md,*.json'
+  exclude-patterns:
+    description: 'Glob patterns to exclude (comma-separated)'
+    required: false
+    default: 'node_modules/**,dist/**,.git/**'
+  max-file-size:
+    description: 'Maximum file size in KB to scan'
+    required: false
+    default: '1000'
+  pr-comment:
+    description: 'Post findings as PR comment'
+    required: false
+    default: 'true'
+  github-token:
+    description: 'GitHub token for PR comments (required if pr-comment is true)'
+    required: false
+    default: ${{ github.token }}
+  api-endpoint:
+    description: 'Custom API endpoint (defaults to https://ai-agent-security-copilot.vercel.app/api)'
+    required: false
+    default: 'https://ai-agent-security-copilot.vercel.app/api'
+
+outputs:
+  scan-summary:
+    description: 'Summary of scan results'
+  risk-score:
+    description: 'Overall risk score (0-100)'
+  high-count:
+    description: 'Number of HIGH risk findings'
+  medium-count:
+    description: 'Number of MEDIUM risk findings'
+  low-count:
+    description: 'Number of LOW risk findings'
+  triage-action:
+    description: 'Recommended triage action (ALLOW/REVIEW/BLOCK)'
+  regression-status:
+    description: 'Regression test result (SAFER/RISKIER/UNCHANGED/NOT_COMPARED)'
+  scan-id:
+    description: 'Unique scan identifier'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

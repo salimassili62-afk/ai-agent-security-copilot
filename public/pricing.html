@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pricing - AI Security Copilot</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui; background: #0f1419; color: #e1e8ed; line-height: 1.6; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 60px 20px; }
+    header { text-align: center; margin-bottom: 60px; }
+    h1 { font-size: 42px; font-weight: 700; margin-bottom: 16px; }
+    .subtitle { font-size: 18px; color: #b0b9c1; }
+    .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; margin-bottom: 80px; }
+    .pricing-card { border: 2px solid #2f3a47; border-radius: 12px; padding: 32px; background: #1a1f26; transition: all 0.3s ease; }
+    .pricing-card:hover { border-color: #1d9bf0; box-shadow: 0 8px 32px rgba(29, 155, 240, 0.1); }
+    .pricing-card.best { border-color: #1d9bf0; background: linear-gradient(135deg, #0f1419 0%, #192734 100%); }
+    .badge { display: inline-block; background: #1d9bf0; color: white; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-bottom: 12px; }
+    .tier-name { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+    .tier-price { font-size: 40px; font-weight: 700; margin-bottom: 4px; }
+    .tier-price span { font-size: 16px; color: #b0b9c1; }
+    .tier-desc { font-size: 14px; color: #b0b9c1; margin-bottom: 24px; }
+    .features { list-style: none; margin-bottom: 32px; }
+    .features li { padding: 10px 0; border-bottom: 1px solid #2f3a47; font-size: 14px; }
+    .features li:last-child { border-bottom: none; }
+    .features li:before { content: "✓ "; color: #1d9bf0; font-weight: 700; margin-right: 8px; }
+    .btn { width: 100%; padding: 12px 24px; border: none; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.3s; }
+    .btn-primary { background: #1d9bf0; color: white; }
+    .btn-primary:hover { background: #1a8cd8; transform: translateY(-2px); }
+    .btn-secondary { background: transparent; border: 2px solid #2f3a47; color: #e1e8ed; }
+    .btn-secondary:hover { border-color: #1d9bf0; color: #1d9bf0; }
+    .faq { margin-top: 80px; }
+    .faq h2 { font-size: 28px; margin-bottom: 32px; text-align: center; }
+    .faq-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px; }
+    .faq-item { }
+    .faq-q { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+    .faq-a { font-size: 14px; color: #b0b9c1; }
+    .nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; padding-bottom: 20px; border-bottom: 1px solid #2f3a47; }
+    .nav-brand { font-size: 20px; font-weight: 700; }
+    .nav-links a { margin-left: 24px; color: #1d9bf0; text-decoration: none; }
+    .nav-links a:hover { color: #e1e8ed; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="nav">
+      <div class="nav-brand">AI Security Copilot</div>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/pricing">Pricing</a>
+      </div>
+    </div>
+
+    <header>
+      <h1>Simple, Transparent Pricing</h1>
+      <p class="subtitle">Choose the plan that's right for you</p>
+    </header>
+
+    <div class="pricing-grid">
+      <!-- FREE -->
+      <div class="pricing-card">
+        <div class="tier-name">Free</div>
+        <div class="tier-price">$0<span>/mo</span></div>
+        <div class="tier-desc">Perfect to get started</div>
+        <ul class="features">
+          <li>Deterministic scanning</li>
+          <li>40+ security patterns</li>
+          <li>60 scans per 15 min</li>
+          <li>OWASP LLM Top 10 mapping</li>
+          <li>No signup required</li>
+          <li>Open source</li>
+        </ul>
+        <button class="btn btn-secondary" onclick="window.location.href='/'">Get Started</button>
+      </div>
+
+      <!-- PRO (BEST) -->
+      <div class="pricing-card best">
+        <div class="badge">MOST POPULAR</div>
+        <div class="tier-name">Pro</div>
+        <div class="tier-price">$99<span>/mo</span></div>
+        <div class="tier-desc">For AI teams shipping fast</div>
+        <ul class="features">
+          <li>Everything in Free</li>
+          <li>AI-powered semantic analysis</li>
+          <li>1,000 scans per 15 min</li>
+          <li>REST API access</li>
+          <li>Scan history & dashboard</li>
+          <li>Priority support</li>
+        </ul>
+        <button class="btn btn-primary" onclick="startCheckout('pro')">Upgrade to Pro</button>
+        <p style="text-align: center; font-size: 12px; color: #b0b9c1; margin-top: 12px;">14-day free trial • Cancel anytime</p>
+      </div>
+
+      <!-- ENTERPRISE -->
+      <div class="pricing-card">
+        <div class="tier-name">Enterprise</div>
+        <div class="tier-price">Custom<span>/mo</span></div>
+        <div class="tier-desc">For large organizations</div>
+        <ul class="features">
+          <li>Everything in Pro</li>
+          <li>Custom scan limits</li>
+          <li>Webhooks & integrations</li>
+          <li>Custom detection rules</li>
+          <li>Dedicated support</li>
+          <li>SLA guarantee</li>
+        </ul>
+        <button class="btn btn-secondary" onclick="window.location.href='mailto:sales@example.com?subject=Enterprise%20Inquiry'">Contact Sales</button>
+      </div>
+    </div>
+
+    <!-- FAQ -->
+    <div class="faq">
+      <h2>Frequently Asked Questions</h2>
+      <div class="faq-grid">
+        <div class="faq-item">
+          <div class="faq-q">Can I cancel anytime?</div>
+          <div class="faq-a">Yes. Cancel your subscription anytime and you won't be charged again. You keep access through the end of your billing cycle.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Is there a free trial?</div>
+          <div class="faq-a">Yes! Get 14 days of Pro features free. No credit card required. You only pay after the trial ends.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">What payment methods do you accept?</div>
+          <div class="faq-a">We accept all major credit cards (Visa, Mastercard, AmEx) via Stripe.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Can I upgrade or downgrade?</div>
+          <div class="faq-a">Yes. Changes take effect immediately and we'll prorate your charges.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Do you offer refunds?</div>
+          <div class="faq-a">If you're not satisfied within 30 days, we offer a full refund, no questions asked.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Can I self-host?</div>
+          <div class="faq-a">Yes! Deterministic scanning works completely self-hosted. Docker image available soon.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://js.stripe.com/v3/"></script>
+  <script>
+    // Get Stripe publishable key from server or use fallback
+    let stripe;
+    
+    // Initialize Stripe with the public key
+    fetch('/api/health')
+      .then(res => res.json())
+      .then(data => {
+        // For now, use a test key - in production this should come from server config
+        stripe = Stripe('pk_test_51234567890abcdef'); // Test key - replace with actual
+      })
+      .catch(() => {
+        // Fallback to test key
+        stripe = Stripe('pk_test_51234567890abcdef');
+      });
+
+    async function startCheckout(tier) {
+      try {
+        const response = await fetch('/api/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tier, priceId: 'price_1234567890' })
+        });
+
+        const data = await response.json();
+        if (data.error) {
+          alert('Error: ' + data.error);
+          return;
+        }
+
+        const { error } = await stripe.redirectToCheckout({ sessionId: data.sessionId });
+        if (error) alert('Checkout error: ' + error.message);
+      } catch (error) {
+        alert('Error starting checkout: ' + error.message);
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,199 +1,59 @@
-name: 'AI Security Copilot Scan'
-description: 'Scan prompts and agents for security risks in CI/CD'
+name: 'AI Security Copilot'
+description: 'Scan code and prompts for LLM security vulnerabilities (OWASP LLM Top 10)'
 author: 'AI Security Copilot'
 branding:
   icon: 'shield'
-  color: 'blue'
+  color: 'red'
 
 inputs:
-  path:
-    description: 'Path to file or directory to scan'
+  api-key:
+    description: 'API key for AI Security Copilot (get from https://ai-agent-security-copilot.vercel.app)'
     required: true
-  fail-on:
-    description: 'Fail if risk level is >= this (low/medium/high/none)'
+  scan-path:
+    description: 'Path to scan (defaults to repository root)'
     required: false
-    default: 'high'
-  compare-baseline:
-    description: 'Path to baseline file for regression testing'
+    default: '.'
+  fail-on-high:
+    description: 'Fail the build if HIGH severity vulnerabilities are found'
     required: false
-  output-format:
-    description: 'Output format (summary/json/markdown)'
+    default: 'true'
+  fail-on-critical:
+    description: 'Fail the build if CRITICAL severity vulnerabilities are found'
     required: false
-    default: 'summary'
-  api-url:
-    description: 'API endpoint URL'
+    default: 'true'
+  include-patterns:
+    description: 'File patterns to include (comma-separated, e.g., "*.js,*.ts,*.prompt")'
     required: false
-    default: ''
+    default: '*.js,*.ts,*.jsx,*.tsx,*.py,*.prompt,*.txt,*.md,*.json,*.yaml,*.yml'
+  exclude-patterns:
+    description: 'File patterns to exclude (comma-separated)'
+    required: false
+    default: 'node_modules/**,dist/**,build/**,.git/**,*.lock,package-lock.json,yarn.lock'
+  max-file-size:
+    description: 'Maximum file size in KB to scan'
+    required: false
+    default: '500'
+  pr-comment:
+    description: 'Post findings as PR comment (requires GITHUB_TOKEN)'
+    required: false
+    default: 'true'
+  github-token:
+    description: 'GitHub token for PR comments (usually secrets.GITHUB_TOKEN)'
+    required: false
+    default: ${{ github.token }}
 
 outputs:
-  score:
-    description: 'Risk score (0-100)'
-  label:
-    description: 'Risk label (LOW/MEDIUM/HIGH)'
-  findings:
-    description: 'Number of security findings'
-  passed:
-    description: 'Whether the scan passed (true/false)'
+  summary:
+    description: 'JSON summary of scan results'
+  high-count:
+    description: 'Number of HIGH severity findings'
+  critical-count:
+    description: 'Number of CRITICAL severity findings'
+  total-findings:
+    description: 'Total number of findings'
+  has-failures:
+    description: 'Whether the scan failed (true/false)'
 
 runs:
-  using: 'composite'
-  steps:
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-    
-    - name: Run Security Scan
-      id: scan
-      shell: bash
-      run: |
-        # Determine CLI path - try multiple strategies
-        CLI_PATH=""
-        
-        # Strategy 1: Use action_path if available
-        if [ -n "${{ github.action_path }}" ] && [ -f "${{ github.action_path }}/../bin/cli.js" ]; then
-          CLI_PATH="${{ github.action_path }}/../bin/cli.js"
-        fi
-        
-        # Strategy 2: Try workspace root
-        if [ -z "$CLI_PATH" ] && [ -f "${{ github.workspace }}/bin/cli.js" ]; then
-          CLI_PATH="${{ github.workspace }}/bin/cli.js"
-        fi
-        
-        # Strategy 3: Try current directory
-        if [ -z "$CLI_PATH" ] && [ -f "./bin/cli.js" ]; then
-          CLI_PATH="./bin/cli.js"
-        fi
-        
-        # Strategy 4: Try relative to GITHUB_ACTION_PATH
-        if [ -z "$CLI_PATH" ] && [ -n "$GITHUB_ACTION_PATH" ]; then
-          if [ -f "$GITHUB_ACTION_PATH/../bin/cli.js" ]; then
-            CLI_PATH="$GITHUB_ACTION_PATH/../bin/cli.js"
-          elif [ -f "$GITHUB_ACTION_PATH/bin/cli.js" ]; then
-            CLI_PATH="$GITHUB_ACTION_PATH/bin/cli.js"
-          fi
-        fi
-        
-        # Verify CLI exists
-        if [ -z "$CLI_PATH" ] || [ ! -f "$CLI_PATH" ]; then
-          echo "❌ Error: Could not find CLI at $CLI_PATH"
-          echo "Searched paths:"
-          echo "  - ${{ github.action_path }}/../bin/cli.js"
-          echo "  - ${{ github.workspace }}/bin/cli.js"
-          echo "  - ./bin/cli.js"
-          echo "  - $GITHUB_ACTION_PATH/../bin/cli.js"
-          exit 1
-        fi
-        
-        echo "✅ Using CLI: $CLI_PATH"
-        
-        # Set API URL (use provided or default to the deployed app)
-        if [ -n "${{ inputs.api-url }}" ]; then
-          export AI_SECURITY_API="${{ inputs.api-url }}"
-        else
-          export AI_SECURITY_API="https://ai-agent-security-copilot.vercel.app"
-        fi
-        
-        echo "🌐 Using API: $AI_SECURITY_API"
-        
-        # Validate input file exists
-        if [ ! -f "${{ inputs.path }}" ]; then
-          echo "⚠️ Warning: Input file not found at ${{ inputs.path }}"
-          echo "Checking if it's a directory..."
-          if [ -d "${{ inputs.path }}" ]; then
-            echo "📁 Input path is a directory. Scanning all files..."
-          else
-            echo "❌ Error: Input path does not exist: ${{ inputs.path }}"
-            exit 1
-          fi
-        fi
-        
-        # Run scan and capture JSON output for parsing
-        SCAN_OUTPUT=""
-        SCAN_EXIT=0
-        set +e  # Don't exit on error, capture exit code
-        if [ -n "${{ inputs.compare-baseline }}" ]; then
-          echo "🔄 Running regression test..."
-          SCAN_OUTPUT=$(node "$CLI_PATH" --compare "${{ inputs.compare-baseline }}" "${{ inputs.path }}" -o json --fail-on "${{ inputs.fail-on }}" 2>/dev/null)
-          SCAN_EXIT=$?
-        else
-          echo "🔍 Running security scan..."
-          SCAN_OUTPUT=$(node "$CLI_PATH" "${{ inputs.path }}" -o json --fail-on "${{ inputs.fail-on }}" 2>/dev/null)
-          SCAN_EXIT=$?
-        fi
-        set -e
-        
-        echo ""
-        echo "📊 Scan completed with exit code: $SCAN_EXIT"
-        
-        # Also print human-readable output (suppress errors)
-        if [ -n "${{ inputs.compare-baseline }}" ]; then
-          node "$CLI_PATH" --compare "${{ inputs.compare-baseline }}" "${{ inputs.path }}" -o summary --fail-on "${{ inputs.fail-on }}" 2>/dev/null || true
-        else
-          node "$CLI_PATH" "${{ inputs.path }}" -o summary --fail-on "${{ inputs.fail-on }}" 2>/dev/null || true
-        fi
-        
-        # Parse outputs from JSON using Node.js for reliability
-        PARSED=$(echo "$SCAN_OUTPUT" | node -e "
-          let data = '';
-          process.stdin.on('data', chunk => data += chunk);
-          process.stdin.on('end', () => {
-            try {
-              const parsed = JSON.parse(data);
-              const result = parsed.parsed || parsed;
-              const score = result.score || 0;
-              const label = result.label || 'UNKNOWN';
-              const findings = (result.reasons || []).length;
-              console.log(JSON.stringify({ score, label, findings }));
-            } catch (e) {
-              console.log(JSON.stringify({ score: 0, label: 'UNKNOWN', findings: 0 }));
-            }
-          });
-        " 2>/dev/null || echo '{"score":0,"label":"UNKNOWN","findings":0}')
-        
-        SCORE=$(echo "$PARSED" | node -e "console.log(JSON.parse(require('fs').readFileSync(0, 'utf-8')).score || 0)" 2>/dev/null || echo "0")
-        LABEL=$(echo "$PARSED" | node -e "console.log(JSON.parse(require('fs').readFileSync(0, 'utf-8')).label || 'UNKNOWN')" 2>/dev/null || echo "UNKNOWN")
-        FINDINGS=$(echo "$PARSED" | node -e "console.log(JSON.parse(require('fs').readFileSync(0, 'utf-8')).findings || 0)" 2>/dev/null || echo "0")
-        
-        # Fallback if parsing failed
-        if [ -z "$SCORE" ] || [ "$SCORE" = "" ] || [ "$SCORE" = "undefined" ]; then SCORE="0"; fi
-        if [ -z "$LABEL" ] || [ "$LABEL" = "" ] || [ "$LABEL" = "undefined" ]; then LABEL="UNKNOWN"; fi
-        if [ -z "$FINDINGS" ] || [ "$FINDINGS" = "" ] || [ "$FINDINGS" = "undefined" ]; then FINDINGS="0"; fi
-        
-        # Determine if scan passed
-        PASSED="false"
-        if [ $SCAN_EXIT -eq 0 ]; then PASSED="true"; fi
-        
-        echo "📈 Parsed results: Score=$SCORE, Label=$LABEL, Findings=$FINDINGS, Passed=$PASSED"
-        
-        # Output results for GitHub Actions
-        echo "score=$SCORE" >> $GITHUB_OUTPUT
-        echo "label=$LABEL" >> $GITHUB_OUTPUT
-        echo "findings=$FINDINGS" >> $GITHUB_OUTPUT
-        echo "passed=$PASSED" >> $GITHUB_OUTPUT
-        
-        exit $SCAN_EXIT
-      
-    - name: Comment PR on Failure
-      if: failure() && github.event_name == 'pull_request'
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const failOn = '${{ inputs.fail-on }}';
-          const path = '${{ inputs.path }}';
-          
-          const body = `⚠️ **Security Regression Test Failed**
-          
-          Scan path: \`${path}\`
-          Fail threshold: \`${failOn}\`
-          
-          The candidate version shows increased security risk.
-          
-          Please review before merging.`;
-          
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: body
-          });
+  using: 'node20'
+  main: 'github-action/dist/index.js'

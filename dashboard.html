@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — AI Security Copilot</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0f1a;
+      --panel: #1a2332;
+      --border: #2d3748;
+      --text: #f3f4f6;
+      --text-secondary: #9ca3af;
+      --primary: #3b82f6;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .nav {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .logo {
+      font-weight: 700;
+      font-size: 18px;
+      text-decoration: none;
+      color: var(--text);
+    }
+    .nav-right {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    .nav a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .btn {
+      padding: 8px 16px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 24px;
+    }
+    .header {
+      margin-bottom: 40px;
+    }
+    .header h1 {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+    .header p {
+      color: var(--text-secondary);
+    }
+    .plan-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-left: 12px;
+    }
+    .plan-badge.free {
+      background: var(--border);
+      color: var(--text-secondary);
+    }
+    .plan-badge.pro {
+      background: rgba(59, 130, 246, 0.2);
+      color: var(--primary);
+      border: 1px solid var(--primary);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      margin-bottom: 40px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+    .card h2 {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+    }
+    .stat {
+      font-size: 36px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .stat-label {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+    .scan-list {
+      list-style: none;
+    }
+    .scan-item {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .scan-item:last-child {
+      border-bottom: none;
+    }
+    .scan-content {
+      flex: 1;
+      font-size: 14px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 400px;
+    }
+    .scan-meta {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    .score {
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .score.high {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--danger);
+    }
+    .score.medium {
+      background: rgba(245, 158, 11, 0.2);
+      color: var(--warning);
+    }
+    .score.low {
+      background: rgba(16, 185, 129, 0.2);
+      color: var(--success);
+    }
+    .api-key {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .hidden {
+      display: none;
+    }
+    .error-message {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid var(--danger);
+      color: var(--danger);
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <a href="/" class="logo">🛡️ AI Security Copilot</a>
+    <div class="nav-right">
+      <a href="/scanner">Scanner</a>
+      <a href="/pricing">Pricing</a>
+      <span id="userEmail"></span>
+      <button class="btn btn-secondary" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="header">
+      <h1>Dashboard <span id="planBadge" class="plan-badge free">Free</span></h1>
+      <p>Manage your account, view scan history, and generate API keys</p>
+    </div>
+
+    <div id="errorContainer"></div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Scans This Month</h2>
+        <div class="stat" id="scanCount">—</div>
+        <div class="stat-label">Total scans in last 30 days</div>
+      </div>
+      <div class="card">
+        <h2>Current Plan</h2>
+        <div class="stat" id="planName">Free</div>
+        <div class="stat-label" id="planLimit">60 scans / 15 min</div>
+      </div>
+      <div class="card">
+        <h2>API Status</h2>
+        <div class="stat" id="apiStatus">—</div>
+        <div class="stat-label">Active API keys</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h2 style="margin:0;">Scan History</h2>
+        <a href="/scanner" class="btn">New Scan</a>
+      </div>
+      <ul class="scan-list" id="scanList">
+        <li class="loading">Loading scans...</li>
+      </ul>
+    </div>
+
+    <div class="card" id="apiKeyCard" style="margin-bottom: 24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h2 style="margin:0;">API Keys</h2>
+        <button class="btn" onclick="generateApiKey()" id="genKeyBtn">Generate Key</button>
+      </div>
+      <div id="apiKeyList">
+        <p style="color:var(--text-secondary);font-size:14px;">
+          API keys are available on Pro plans. 
+          <a href="/pricing" style="color:var(--primary);">Upgrade to access</a>
+        </p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Quick Links</h2>
+      <div style="display:flex;gap:16px;margin-top:16px;">
+        <a href="/docs" class="btn btn-secondary">Documentation</a>
+        <a href="/github-action" class="btn btn-secondary">GitHub Action</a>
+        <a href="mailto:hello@ai-security-copilot.com" class="btn btn-secondary">Support</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = '';
+    let user = null;
+    let accessToken = null;
+
+    // Check for auth in URL hash or localStorage
+    function initAuth() {
+      const hash = window.location.hash.slice(1);
+      const params = new URLSearchParams(hash);
+      const urlToken = params.get('access_token');
+      
+      if (urlToken) {
+        accessToken = urlToken;
+        const refreshToken = params.get('refresh_token');
+        const userData = params.get('user');
+        
+        localStorage.setItem('access_token', accessToken);
+        if (refreshToken) localStorage.setItem('refresh_token', refreshToken);
+        if (userData) {
+          user = JSON.parse(decodeURIComponent(userData));
+          localStorage.setItem('user', JSON.stringify(user));
+        }
+        
+        // Clean URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else {
+        // Check localStorage
+        accessToken = localStorage.getItem('access_token');
+        const userData = localStorage.getItem('user');
+        if (userData) user = JSON.parse(userData);
+      }
+      
+      if (!accessToken) {
+        showError('Please sign in to access the dashboard. <a href="/?signup=true">Sign in</a>');
+        return;
+      }
+      
+      loadDashboard();
+    }
+
+    async function loadDashboard() {
+      try {
+        // Get user info
+        const userRes = await fetch('/api/auth/user', {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        const userData = await userRes.json();
+        
+        if (!userData.user) {
+          throw new Error('Session expired');
+        }
+        
+        user = userData.user;
+        document.getElementById('userEmail').textContent = user.email;
+        
+        // Load dashboard data
+        const dashRes = await fetch('/api/dashboard', {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        const dashData = await dashRes.json();
+        
+        if (!dashData.ok) {
+          throw new Error(dashData.error || 'Failed to load dashboard');
+        }
+        
+        updateUI(dashData);
+        
+        // Load API keys if on Pro
+        if (dashData.user.plan !== 'free') {
+          loadApiKeys();
+        }
+      } catch (err) {
+        showError(err.message);
+        if (err.message.includes('expired') || err.message.includes('Authentication')) {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('user');
+          setTimeout(() => location.href = '/?signup=true', 2000);
+        }
+      }
+    }
+
+    function updateUI(data) {
+      const plan = data.user.plan;
+      
+      // Update plan badge
+      const badge = document.getElementById('planBadge');
+      badge.textContent = plan;
+      badge.className = `plan-badge ${plan}`;
+      
+      // Update stats
+      document.getElementById('scanCount').textContent = data.user.scans_this_month || 0;
+      document.getElementById('planName').textContent = plan.charAt(0).toUpperCase() + plan.slice(1);
+      
+      const limits = { free: '60 scans / 15 min', pro: 'Unlimited', enterprise: 'Custom' };
+      document.getElementById('planLimit').textContent = limits[plan] || limits.free;
+      
+      // Update scan list
+      const list = document.getElementById('scanList');
+      if (data.recent_scans && data.recent_scans.length > 0) {
+        list.innerHTML = data.recent_scans.map(scan => {
+          const score = scan.score || 0;
+          const level = score >= 75 ? 'high' : score >= 40 ? 'medium' : 'low';
+          const date = new Date(scan.created_at).toLocaleDateString();
+          const preview = scan.content_hash ? scan.content_hash.slice(0, 32) + '...' : 'Scan';
+          return `
+            <li class="scan-item">
+              <div class="scan-content">${preview}</div>
+              <div class="scan-meta">
+                <span class="score ${level}">${score}/100</span>
+                <span style="color:var(--text-secondary);font-size:12px;">${date}</span>
+              </div>
+            </li>
+          `;
+        }).join('');
+      } else {
+        list.innerHTML = '<li class="scan-item" style="justify-content:center;color:var(--text-secondary);">No scans yet. <a href="/scanner" style="color:var(--primary);margin-left:8px;">Run your first scan</a></li>';
+      }
+      
+      // Update API key section
+      if (plan === 'free') {
+        document.getElementById('genKeyBtn').style.display = 'none';
+        document.getElementById('apiStatus').textContent = '0';
+      } else {
+        document.getElementById('apiStatus').textContent = 'Active';
+      }
+    }
+
+    async function loadApiKeys() {
+      try {
+        const res = await fetch('/api/apikeys', {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        const data = await res.json();
+        
+        if (data.ok && data.keys) {
+          document.getElementById('apiStatus').textContent = data.keys.length;
+          
+          if (data.keys.length > 0) {
+            document.getElementById('apiKeyList').innerHTML = data.keys.map(key => `
+              <div class="api-key">
+                <span>${key.name} • Created ${new Date(key.created_at).toLocaleDateString()}</span>
+                <span style="color:var(--text-secondary);">••••••••</span>
+              </div>
+            `).join('');
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load API keys:', err);
+      }
+    }
+
+    async function generateApiKey() {
+      try {
+        const res = await fetch('/api/apikeys', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ name: 'Dashboard Key' })
+        });
+        const data = await res.json();
+        
+        if (data.ok && data.apiKey) {
+          document.getElementById('apiKeyList').innerHTML = `
+            <div style="background:rgba(16,185,129,0.1);border:1px solid var(--success);padding:16px;border-radius:8px;margin-bottom:16px;">
+              <p style="margin:0 0 8px;font-size:14px;">Your new API key (copy it now - it won't be shown again):</p>
+              <code style="background:var(--bg);padding:8px 12px;border-radius:4px;display:block;word-break:break-all;">${data.apiKey}</code>
+            </div>
+          `;
+          loadApiKeys();
+        } else {
+          alert(data.error || 'Failed to generate API key');
+        }
+      } catch (err) {
+        alert('Failed to generate API key');
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('user');
+      location.href = '/';
+    }
+
+    function showError(msg) {
+      document.getElementById('errorContainer').innerHTML = `
+        <div class="error-message">${msg}</div>
+      `;
+    }
+
+    // Initialize
+    initAuth();
+  </script>
+</body>
+</html>
