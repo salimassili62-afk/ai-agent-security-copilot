@@ -1255,6 +1255,46 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Simple Auth endpoints - Fix GitHub OAuth redirect URI issue
+app.get('/auth/login', (req, res) => {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  if (!supabaseUrl) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+  
+  // Redirect to Supabase OAuth
+  const redirectTo = 'https://ai-agent-security-copilot.vercel.app/auth/callback';
+  const authUrl = `${supabaseUrl}/auth/v1/oauth/authorize?provider=github&redirect_to=${encodeURIComponent(redirectTo)}`;
+  res.redirect(authUrl);
+});
+
+app.get('/auth/callback', async (req, res) => {
+  try {
+    const { code, error } = req.query;
+    
+    if (error) {
+      return res.redirect(`/?error=${error}`);
+    }
+    
+    if (code) {
+      // Supabase handles the code exchange automatically
+      // Just redirect to dashboard
+      return res.redirect('/dashboard');
+    }
+    
+    res.redirect('/');
+  } catch (error) {
+    log('ERROR', 'Auth callback failed', { error: error.message });
+    res.redirect('/?error=auth_failed');
+  }
+});
+
+app.get('/auth/logout', (req, res) => {
+  res.clearCookie('auth_token');
+  res.clearCookie('supabase_token');
+  res.redirect('/');
+});
+
 // Auth endpoints - Full Supabase GitHub OAuth implementation
 app.get("/api/auth/github", async (req, res) => {
   const requestId = res.locals.requestId;

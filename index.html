@@ -755,45 +755,13 @@ Schema:
     }
 
     async function startGitHubLogin() {
-      try {
-        const res = await fetch("/api/auth/github");
-        const data = await res.json();
-        
-        if (data.url && data.url.startsWith('http')) {
-          // Real OAuth flow
-          window.location.href = data.url;
-        } else if (data.setupRequired) {
-          // Show setup dialog
-          const steps = data.setupSteps ? data.setupSteps.join('\n') : '';
-          alert(`🔐 Sign In Setup Required\n\n${data.error}\n\n${steps ? 'Setup steps:\n' + steps : ''}\n\nGuest mode is available and fully functional.`);
-        } else {
-          showToast("Sign in not available — using Guest mode");
-        }
-      } catch (e) {
-        showToast("Sign in temporarily unavailable");
-        console.error("Auth error:", e);
-      }
+      // Direct redirect to simple auth endpoint
+      window.location.href = '/auth/login';
     }
 
     async function logout() {
-      if (accessToken) {
-        try {
-          await fetch("/api/auth/logout", {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${accessToken}` }
-          });
-        } catch (e) {
-          // Ignore errors
-        }
-      }
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-      accessToken = null;
-      refreshToken = null;
-      currentUser = null;
-      showGuestMode();
-      loadHistory();
-      showToast("Logged out");
+      // Direct redirect to simple logout endpoint
+      window.location.href = '/auth/logout';
     }
 
     async function loadCloudHistory() {
