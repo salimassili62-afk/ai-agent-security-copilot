@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const helmet = require("helmet");
 const cors = require("cors");
 const path = require("path");
+const cookieParser = require("cookie-parser");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,6 +15,10 @@ const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 const MAX_SCAN_CHARS = 10000;
 const GROQ_TIMEOUT_MS = 30000;
 const SCAN_CACHE_MS = 60000;
+
+// GitHub OAuth Configuration
+const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
+const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 
 // Optional Supabase
 let supabase = null;
@@ -48,6 +53,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id']
 }));
 app.use(express.json({ limit: "1mb" }));
+app.use(cookieParser());
 app.use(express.static(path.join(__dirname, ".")));
 
 // Request ID middleware
@@ -1255,17 +1261,17 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Simple Auth endpoints - Fix GitHub OAuth redirect URI issue
+// Direct GitHub OAuth Implementation
 app.get('/auth/login', (req, res) => {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  if (!supabaseUrl) {
-    return res.status(500).json({ error: 'Supabase not configured' });
+  if (!GITHUB_CLIENT_ID) {
+    return res.status(500).json({ error: 'GitHub OAuth not configured' });
   }
   
-  // Redirect to Supabase OAuth
-  const redirectTo = 'https://ai-agent-security-copilot.vercel.app/auth/callback';
-  const authUrl = `${supabaseUrl}/auth/v1/oauth/authorize?provider=github&redirect_to=${encodeURIComponent(redirectTo)}`;
-  res.redirect(authUrl);
+  const redirectUri = 'https://ai-agent-security-copilot.vercel.app/auth/callback';
+  const scope = 'user:email';
+  const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}`;
+  
+  res.redirect(githubAuthUrl);
 });
 
 app.get('/auth/callback', async (req, res) => {
@@ -1273,26 +1279,111 @@ app.get('/auth/callback', async (req, res) => {
     const { code, error } = req.query;
     
     if (error) {
-      return res.redirect(`/?error=${error}`);
+      log('ERROR', 'GitHub OAuth error', { error });
+      return res.redirect('/?error=' + error);
     }
     
-    if (code) {
-      // Supabase handles the code exchange automatically
-      // Just redirect to dashboard
-      return res.redirect('/dashboard');
+    if (!code) {
+      return res.redirect('/?error=no_code');
     }
     
-    res.redirect('/');
+    // Exchange code for access token
+    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        client_secret: GITHUB_CLIENT_SECRET,
+        code: code,
+      }),
+    });
+    
+    const tokenData = await tokenResponse.json();
+    
+    if (tokenData.error) {
+      log('ERROR', 'Failed to get token', { error: tokenData.error });
+      return res.redirect('/?error=token_exchange_failed');
+    }
+    
+    const accessToken = tokenData.access_token;
+    
+    // Get user info from GitHub
+    const userResponse = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json',
+      },
+    });
+    
+    const userData = await userResponse.json();
+    
+    // Create session (using simple JWT or session cookie)
+    const sessionToken = Buffer.from(JSON.stringify({
+      id: userData.id,
+      login: userData.login,
+      email: userData.email,
+      avatar: userData.avatar_url,
+      timestamp: Date.now(),
+    })).toString('base64');
+    
+    res.cookie('auth_session', sessionToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+    
+    log('INFO', 'User authenticated', { login: userData.login, email: userData.email });
+    
+    res.redirect('/dashboard');
   } catch (error) {
-    log('ERROR', 'Auth callback failed', { error: error.message });
+    log('ERROR', 'Auth callback error', { error: error.message });
     res.redirect('/?error=auth_failed');
   }
 });
 
 app.get('/auth/logout', (req, res) => {
-  res.clearCookie('auth_token');
-  res.clearCookie('supabase_token');
+  res.clearCookie('auth_session');
   res.redirect('/');
+});
+
+// Check auth status (for dashboard)
+app.get('/api/auth/status', (req, res) => {
+  try {
+    const sessionCookie = req.cookies.auth_session;
+    
+    if (!sessionCookie) {
+      return res.json({ authenticated: false });
+    }
+    
+    const userData = JSON.parse(Buffer.from(sessionCookie, 'base64').toString());
+    res.json({
+      authenticated: true,
+      user: {
+        login: userData.login,
+        email: userData.email,
+        avatar: userData.avatar,
+      },
+    });
+  } catch (error) {
+    res.json({ authenticated: false });
+  }
+});
+
+// Dashboard redirect with auth check
+app.get('/dashboard', (req, res) => {
+  const sessionCookie = req.cookies.auth_session;
+  
+  if (!sessionCookie) {
+    // Not authenticated, redirect to home
+    return res.redirect('/?error=not_authenticated');
+  }
+  
+  // Authenticated, serve dashboard.html
+  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
 });
 
 // Auth endpoints - Full Supabase GitHub OAuth implementation
