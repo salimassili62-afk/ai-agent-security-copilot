@@ -52,8 +52,8 @@
 1. Sign up at [stripe.com](https://stripe.com)
 2. Go to **Products → Add Product**
 3. Create two products:
-   - **Pro Plan** - $12/month recurring
-   - **Enterprise Plan** - $49/month recurring
+   - **Professional Plan** - $19/month recurring
+   - **Enterprise Plan** - $99/month recurring
 4. Copy the **Price IDs** (they look like `price_1ABC...`)
 
 #### Step 2: Get API Keys

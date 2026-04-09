@@ -600,49 +600,63 @@ function runHeuristicScan(content) {
     }
   }
   
-  // Coherent scoring model: CRITICAL findings immediately trigger HIGH score
-  // This ensures score/label/triage are always aligned
-  // 1+ CRITICAL = HIGH risk (75+) with BLOCK action
-  // 2+ HIGH = MEDIUM risk (40+) with REVIEW action  
-  // Otherwise = LOW risk (<40) with ALLOW action
+  // Calibrated scoring model to reduce false positives
+  // Base score starts low, only significant threats get high scores
+  // Normal prompts should score <20, clear attacks >80
   let score = 0;
   
-  // CRITICAL = 75 base (immediately HIGH risk category)
-  // This ensures any BLOCK-worthy finding produces HIGH score
-  score += criticalCount * 75;
+  // CRITICAL findings are serious but don't automatically max out score
+  // Only direct instruction overrides get high base score
+  const criticalOverrides = findings.filter(f => 
+    f.severity === "CRITICAL" && 
+    (f.type.includes("instruction override") || 
+     f.type.includes("forget instructions") ||
+     f.type.includes("jailbreak"))
+  );
   
-  // HIGH severity adds meaningfully but doesn't change category alone
-  score += highCount * 20;
+  const otherCritical = findings.filter(f => 
+    f.severity === "CRITICAL" && !criticalOverrides.includes(f)
+  );
   
-  // MEDIUM adds weight - 2 mediums should be around 10+ for minScore thresholds
-  score += mediumCount * 5;
+  // Score critical overrides higher (these are real threats)
+  score += criticalOverrides.length * 35;
   
-  // Bonus for combination attacks (only if already critical)
-  if (criticalCount >= 2) score += 15;
-  if (criticalCount >= 1 && highCount >= 2) score += 10;
-  if (findings.some(f => f.category === "LLM02") && findings.some(f => f.category === "LLM06")) score += 10;
+  // Other critical findings score moderately
+  score += otherCritical.length * 20;
   
+  // HIGH severity findings add small amount
+  score += highCount * 8;
+  
+  // MEDIUM findings add minimal amount
+  score += mediumCount * 3;
+  
+  // Combination bonuses only for serious attacks
+  if (criticalOverrides.length >= 2) score += 20;
+  if (criticalOverrides.length >= 1 && highCount >= 3) score += 15;
+  
+  // Cap at 100
   score = Math.min(100, score);
   
-  // Coherent label thresholds matching triage logic
-  // >= 75 = HIGH (BLOCK threshold)
-  // >= 40 = MEDIUM (REVIEW threshold)
-  // < 40 = LOW (ALLOW)
-  const label = score >= 75 ? "HIGH" : score >= 40 ? "MEDIUM" : "LOW";
+  // Adjusted thresholds for better calibration
+  // >= 80 = HIGH (clear attacks)
+  // >= 35 = MEDIUM (suspicious patterns)
+  // < 35 = LOW (normal prompts)
+  const label = score >= 80 ? "HIGH" : score >= 35 ? "MEDIUM" : "LOW";
   
-  // Action based on findings
+  // Action based on calibrated findings
   let action = "ALLOW";
   let rationale = "No significant findings";
   
-  if (criticalCount >= 1) {
+  // Only block for clear attacks (critical overrides or many findings)
+  if (criticalOverrides.length >= 1 || score >= 80) {
     action = "BLOCK";
-    rationale = `${criticalCount} critical security finding(s) detected`;
-  } else if (highCount >= 2 || score >= 60) {
-    action = "BLOCK";
-    rationale = `Multiple high-risk patterns detected (${highCount} high severity)`;
-  } else if (score >= 40) {
+    rationale = `Clear attack pattern detected (score: ${score})`;
+  } else if (score >= 60 || (criticalCount >= 1 && highCount >= 2)) {
     action = "REVIEW";
-    rationale = `${findings.length} security finding(s) require review`;
+    rationale = `Suspicious pattern detected (score: ${score})`;
+  } else if (highCount >= 2 || mediumCount >= 4) {
+    action = "REVIEW";
+    rationale = `Multiple concerning patterns detected (score: ${score})`;
   } else if (findings.length > 0) {
     action = "REVIEW";
     rationale = `${findings.length} low-risk pattern(s) detected`;

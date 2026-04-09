@@ -124,7 +124,7 @@
         <h2>Professional</h2>
         <p class="plan-desc">For developers & small teams</p>
         <div class="price">
-          <span class="amount" id="pro-price">$12</span>
+          <span class="amount" id="pro-price">$19</span>
           <span class="period">/month</span>
         </div>
         <button class="cta-button primary" onclick="startCheckout('pro')">Start Free Trial</button>
@@ -141,7 +141,7 @@
         <h2>Enterprise</h2>
         <p class="plan-desc">For teams building AI at scale</p>
         <div class="price">
-          <span class="amount" id="team-price">$49</span>
+          <span class="amount" id="team-price">$99</span>
           <span class="period">/month</span>
         </div>
         <button class="cta-button primary" onclick="startCheckout('team')">Start Free Trial</button>
@@ -180,8 +180,8 @@
       document.querySelectorAll('.billing-toggle span').forEach((el, i) => {
         el.classList.toggle('active', (isYearly && i === 1) || (!isYearly && i === 0));
       });
-      document.getElementById('pro-price').textContent = isYearly ? '$10' : '$12';
-      document.getElementById('team-price').textContent = isYearly ? '$39' : '$49';
+      document.getElementById('pro-price').textContent = isYearly ? '$16' : '$19';
+      document.getElementById('team-price').textContent = isYearly ? '$79' : '$99';
     }
     
     async function startCheckout(plan) {

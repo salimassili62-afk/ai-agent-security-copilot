@@ -112,8 +112,8 @@ For full features (auth, payments), connect Supabase and Stripe.
 | Plan | Price | Features |
 |------|-------|----------|
 | **Starter** | Free | 60 scans/15min, 150+ patterns, GitHub OAuth |
-| **Pro** | $12/mo | Unlimited scans, AI + patterns, API keys, 90-day history |
-| **Enterprise** | $49/mo | Team workspace (25 seats), SSO, dedicated SLA |
+| **Professional** | $19/mo | Unlimited scans, AI + patterns, API keys, 90-day history |
+| **Enterprise** | $99/mo | Team workspace (25 seats), SSO, dedicated SLA |
 
 [View full pricing →](pricing.html)
 
