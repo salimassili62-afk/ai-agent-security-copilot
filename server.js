@@ -1,3 +1,4 @@
+// Updated: 2026-04-09 - pricing and scanner fix
 require('dotenv').config();
 const express = require("express");
 const crypto = require("crypto");
@@ -600,66 +601,60 @@ function runHeuristicScan(content) {
     }
   }
   
-  // Calibrated scoring model to reduce false positives
-  // Base score starts low, only significant threats get high scores
-  // Normal prompts should score <20, clear attacks >80
+  // Ultra-conservative scoring to eliminate false positives
+  // Only the most obvious attacks should score high
+  // Normal prompts MUST score <15, clear attacks >85
   let score = 0;
   
-  // CRITICAL findings are serious but don't automatically max out score
-  // Only direct instruction overrides get high base score
-  const criticalOverrides = findings.filter(f => 
+  // Only count the most severe direct instruction overrides
+  const directOverrides = findings.filter(f => 
     f.severity === "CRITICAL" && 
     (f.type.includes("instruction override") || 
      f.type.includes("forget instructions") ||
+     f.type.includes("disregard constraints") ||
      f.type.includes("jailbreak"))
   );
   
+  // Other findings get minimal weight
   const otherCritical = findings.filter(f => 
-    f.severity === "CRITICAL" && !criticalOverrides.includes(f)
+    f.severity === "CRITICAL" && !directOverrides.includes(f)
   );
   
-  // Score critical overrides higher (these are real threats)
-  score += criticalOverrides.length * 35;
+  // Very conservative scoring
+  score += directOverrides.length * 45;  // Only direct overrides get high score
+  score += otherCritical.length * 8;     // Other critical minimal
+  score += highCount * 3;                // High severity very low
+  score += mediumCount * 1;              // Medium severity minimal
   
-  // Other critical findings score moderately
-  score += otherCritical.length * 20;
-  
-  // HIGH severity findings add small amount
-  score += highCount * 8;
-  
-  // MEDIUM findings add minimal amount
-  score += mediumCount * 3;
-  
-  // Combination bonuses only for serious attacks
-  if (criticalOverrides.length >= 2) score += 20;
-  if (criticalOverrides.length >= 1 && highCount >= 3) score += 15;
+  // Only add bonuses for multiple direct overrides
+  if (directOverrides.length >= 2) score += 15;
   
   // Cap at 100
   score = Math.min(100, score);
   
-  // Adjusted thresholds for better calibration
-  // >= 80 = HIGH (clear attacks)
-  // >= 35 = MEDIUM (suspicious patterns)
-  // < 35 = LOW (normal prompts)
-  const label = score >= 80 ? "HIGH" : score >= 35 ? "MEDIUM" : "LOW";
+  // Very conservative thresholds
+  // >= 85 = HIGH (only clear attacks)
+  // >= 25 = MEDIUM (suspicious but not attacks)
+  // < 25 = LOW (normal prompts)
+  const label = score >= 85 ? "HIGH" : score >= 25 ? "MEDIUM" : "LOW";
   
-  // Action based on calibrated findings
+  // Action based on ultra-conservative findings
   let action = "ALLOW";
   let rationale = "No significant findings";
   
-  // Only block for clear attacks (critical overrides or many findings)
-  if (criticalOverrides.length >= 1 || score >= 80) {
+  // Only block for direct instruction overrides
+  if (directOverrides.length >= 1 || score >= 85) {
     action = "BLOCK";
-    rationale = `Clear attack pattern detected (score: ${score})`;
-  } else if (score >= 60 || (criticalCount >= 1 && highCount >= 2)) {
+    rationale = `Direct instruction override detected (score: ${score})`;
+  } else if (score >= 50 || directOverrides.length >= 1) {
     action = "REVIEW";
-    rationale = `Suspicious pattern detected (score: ${score})`;
-  } else if (highCount >= 2 || mediumCount >= 4) {
+    rationale = `Suspicious instruction pattern detected (score: ${score})`;
+  } else if (highCount >= 3 || otherCritical.length >= 2) {
     action = "REVIEW";
     rationale = `Multiple concerning patterns detected (score: ${score})`;
   } else if (findings.length > 0) {
-    action = "REVIEW";
-    rationale = `${findings.length} low-risk pattern(s) detected`;
+    action = "ALLOW";
+    rationale = `${findings.length} low-risk pattern(s) detected - within normal range`;
   }
   
   const owaspMap = {};
