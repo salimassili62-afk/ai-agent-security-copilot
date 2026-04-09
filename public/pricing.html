@@ -39,6 +39,68 @@
     .nav-brand { font-size: 20px; font-weight: 700; }
     .nav-links a { margin-left: 24px; color: #1d9bf0; text-decoration: none; }
     .nav-links a:hover { color: #e1e8ed; }
+    
+    /* Mobile Responsive */
+    @media (max-width: 768px) {
+      .container {
+        padding: 80px 20px 40px;
+      }
+      .nav-links {
+        display: none;
+      }
+      h1 {
+        font-size: 32px;
+      }
+      .pricing-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+      }
+    }
+    
+    @media (max-width: 390px) {
+      .container {
+        padding: 80px 16px 40px;
+      }
+      .nav-content {
+        padding: 0 16px;
+      }
+      .logo {
+        font-size: 16px;
+      }
+      h1 {
+        font-size: 28px;
+      }
+      .subtitle {
+        font-size: 16px;
+      }
+      .pricing-card {
+        padding: 24px 20px;
+      }
+      .tier-price {
+        font-size: 32px;
+      }
+      .features {
+        margin-bottom: 24px;
+      }
+      .features li {
+        padding: 8px 0;
+        font-size: 13px;
+      }
+      .btn {
+        padding: 14px 20px;
+        font-size: 14px;
+      }
+      .faq-grid {
+        grid-template-columns: 1fr;
+        gap: 24px;
+      }
+      .faq-q {
+        font-size: 15px;
+      }
+      .faq-a {
+        font-size: 13px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -57,52 +119,52 @@
     </header>
 
     <div class="pricing-grid">
-      <!-- FREE -->
+      <!-- STARTER -->
       <div class="pricing-card">
-        <div class="tier-name">Free</div>
+        <div class="tier-name">Starter</div>
         <div class="tier-price">$0<span>/mo</span></div>
         <div class="tier-desc">Perfect to get started</div>
         <ul class="features">
-          <li>Deterministic scanning</li>
-          <li>40+ security patterns</li>
-          <li>60 scans per 15 min</li>
+          <li>60 scans per 15 minutes</li>
+          <li>150+ security rules</li>
           <li>OWASP LLM Top 10 mapping</li>
-          <li>No signup required</li>
+          <li>No AI analysis</li>
+          <li>No cloud sync</li>
           <li>Open source</li>
         </ul>
         <button class="btn btn-secondary" onclick="window.location.href='/'">Get Started</button>
       </div>
 
-      <!-- PRO (BEST) -->
+      <!-- PROFESSIONAL (BEST) -->
       <div class="pricing-card best">
         <div class="badge">MOST POPULAR</div>
-        <div class="tier-name">Pro</div>
-        <div class="tier-price">$99<span>/mo</span></div>
+        <div class="tier-name">Professional</div>
+        <div class="tier-price">$19<span>/mo</span></div>
         <div class="tier-desc">For AI teams shipping fast</div>
         <ul class="features">
-          <li>Everything in Free</li>
-          <li>AI-powered semantic analysis</li>
-          <li>1,000 scans per 15 min</li>
-          <li>REST API access</li>
-          <li>Scan history & dashboard</li>
+          <li>Everything in Starter</li>
+          <li>Unlimited scans</li>
+          <li>AI + security rules hybrid</li>
+          <li>Cloud history 90 days</li>
+          <li>GitHub Action integration</li>
           <li>Priority support</li>
         </ul>
-        <button class="btn btn-primary" onclick="startCheckout('pro')">Upgrade to Pro</button>
+        <button class="btn btn-primary" onclick="startCheckout('professional')">Start Free Trial</button>
         <p style="text-align: center; font-size: 12px; color: #b0b9c1; margin-top: 12px;">14-day free trial • Cancel anytime</p>
       </div>
 
       <!-- ENTERPRISE -->
       <div class="pricing-card">
         <div class="tier-name">Enterprise</div>
-        <div class="tier-price">Custom<span>/mo</span></div>
+        <div class="tier-price">$99<span>/mo</span></div>
         <div class="tier-desc">For large organizations</div>
         <ul class="features">
-          <li>Everything in Pro</li>
-          <li>Custom scan limits</li>
-          <li>Webhooks & integrations</li>
+          <li>Everything in Professional</li>
+          <li>Up to 25 team members</li>
+          <li>Full API access</li>
+          <li>SSO & SAML</li>
+          <li>Dedicated SLA</li>
           <li>Custom detection rules</li>
-          <li>Dedicated support</li>
-          <li>SLA guarantee</li>
         </ul>
         <button class="btn btn-secondary" onclick="window.location.href='mailto:sales@example.com?subject=Enterprise%20Inquiry'">Contact Sales</button>
       </div>
@@ -159,10 +221,18 @@
 
     async function startCheckout(tier) {
       try {
+        const priceIds = {
+          'professional': 'price_professional_19',
+          'enterprise': 'price_enterprise_99'
+        };
+        
         const response = await fetch('/api/checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tier, priceId: 'price_1234567890' })
+          body: JSON.stringify({ 
+            tier, 
+            priceId: priceIds[tier] || 'price_1234567890'
+          })
         });
 
         const data = await response.json();

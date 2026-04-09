@@ -32,6 +32,74 @@
     .key-info { flex: 1; }
     .key-actions { display: flex; gap: 10px; }
     .toast { position: fixed; bottom: 20px; right: 20px; background: #1d9bf0; color: white; padding: 15px 20px; border-radius: 8px; display: none; z-index: 1000; }
+    
+    /* Mobile Responsive */
+    @media (max-width: 768px) {
+      .container {
+        padding: 80px 20px 40px;
+      }
+      .nav-links {
+        display: none;
+      }
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+      }
+      .section {
+        padding: 24px;
+        margin-bottom: 24px;
+      }
+    }
+    
+    @media (max-width: 390px) {
+      .container {
+        padding: 80px 16px 40px;
+      }
+      .nav-content {
+        padding: 0 16px;
+      }
+      .nav-brand {
+        font-size: 16px;
+      }
+      h1 {
+        font-size: 28px;
+        margin-bottom: 24px;
+      }
+      .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      .stat-card {
+        padding: 16px;
+      }
+      .stat-number {
+        font-size: 20px;
+      }
+      .section {
+        padding: 20px 16px;
+        margin-bottom: 20px;
+      }
+      .key-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .key-actions {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+      }
+      .btn {
+        flex: 1;
+        padding: 8px 12px;
+        font-size: 14px;
+      }
+      .toast {
+        left: 16px;
+        right: 16px;
+        bottom: 16px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -61,26 +129,26 @@
       <h2>Usage Overview</h2>
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-number" id="scansThisMonth">342</div>
+          <div class="stat-number" id="scansThisMonth">0</div>
           <div class="stat-label">Scans This Month</div>
         </div>
         <div class="stat-card">
-          <div class="stat-number" id="scansToday">28</div>
+          <div class="stat-number" id="scansToday">0</div>
           <div class="stat-label">Scans Today</div>
         </div>
         <div class="stat-card">
-          <div class="stat-number" id="apiKeysCount">3</div>
+          <div class="stat-number" id="apiKeysCount">0</div>
           <div class="stat-label">Active API Keys</div>
         </div>
         <div class="stat-card">
-          <div class="stat-number" id="highRiskCount">5</div>
+          <div class="stat-number" id="highRiskCount">0</div>
           <div class="stat-label">High Risk Findings</div>
         </div>
       </div>
       
-      <p>Monthly Usage: <strong id="usageText">342 / 45,000</strong></p>
+      <p>Monthly Usage: <strong id="usageText">0 / 1,000</strong></p>
       <div class="progress-bar">
-        <div class="progress-fill" id="usageProgress" style="width: 0.76%;"></div>
+        <div class="progress-fill" id="usageProgress" style="width: 0%;"></div>
       </div>
     </div>
 
@@ -222,30 +290,52 @@
         const res = await fetch('/api/dashboard');
         const data = await res.json();
         
-        if (data.plan) {
-          document.getElementById('currentPlan').textContent = data.plan.toUpperCase();
-          document.getElementById('currentPlan').className = `badge ${data.plan.toLowerCase()}`;
-        }
-        
-        if (data.usage) {
-          document.getElementById('scansThisMonth').textContent = data.usage.scansThisMonth || 0;
-          document.getElementById('scansToday').textContent = data.usage.scansToday || 0;
+        if (data.ok && data.user) {
+          // Update plan information
+          const plan = data.user.plan || 'free';
+          document.getElementById('currentPlan').textContent = plan.toUpperCase();
+          document.getElementById('currentPlan').className = `badge ${plan.toLowerCase()}`;
           
-          const total = data.usage.monthlyLimit || 45000;
-          const used = data.usage.scansThisMonth || 0;
-          const percentage = total > 0 ? (used / total * 100).toFixed(1) : 0;
+          // Update scan limits based on plan
+          const limits = {
+            free: { scans: 60, label: '60' },
+            professional: { scans: 1000, label: '1,000' },
+            enterprise: { scans: 10000, label: '10,000' }
+          };
+          const planLimits = limits[plan] || limits.free;
+          document.getElementById('scanLimit').textContent = planLimits.label;
           
-          document.getElementById('usageText').textContent = `${used.toLocaleString()} / ${total.toLocaleString()}`;
+          // Update billing info
+          const prices = {
+            free: '$0',
+            professional: '$19',
+            enterprise: '$99'
+          };
+          document.getElementById('billing').textContent = `Monthly (${prices[plan]})`;
+          
+          // Update usage stats
+          const scansThisMonth = data.user.scans_this_month || 0;
+          document.getElementById('scansThisMonth').textContent = scansThisMonth;
+          document.getElementById('scansToday').textContent = data.scans_today || 0;
+          
+          // Update usage progress
+          const total = planLimits.scans;
+          const percentage = total > 0 ? (scansThisMonth / total * 100).toFixed(1) : 0;
+          document.getElementById('usageText').textContent = `${scansThisMonth.toLocaleString()} / ${total.toLocaleString()}`;
           document.getElementById('usageProgress').style.width = `${percentage}%`;
-        }
-        
-        if (data.stats) {
-          document.getElementById('highRiskCount').textContent = data.stats.highRiskFindings || 0;
+          
+          // Update high risk findings
+          document.getElementById('highRiskCount').textContent = data.high_risk_findings || 0;
         }
         
         updateApiKeyCount();
       } catch (error) {
         console.error('Error loading dashboard data:', error);
+        // Show default values for unauthenticated users
+        document.getElementById('currentPlan').textContent = 'FREE';
+        document.getElementById('currentPlan').className = 'badge free';
+        document.getElementById('scanLimit').textContent = '60';
+        document.getElementById('billing').textContent = 'Monthly ($0)';
       }
     }
 
@@ -302,7 +392,14 @@
           
           scansContainer.innerHTML = html;
         } else {
-          scansContainer.innerHTML = '<p style="color: #b0b9c1;">No scans yet. Start scanning to see your results here.</p>';
+          scansContainer.innerHTML = `
+            <div style="text-align: center; padding: 40px; color: #b0b9c1;">
+              <div style="font-size: 48px; margin-bottom: 16px;">🔍</div>
+              <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">No scans yet</div>
+              <div style="margin-bottom: 20px;">Run your first scan to see results here</div>
+              <button class="btn" onclick="window.location.href='/scanner'">Run First Scan</button>
+            </div>
+          `;
         }
       } catch (error) {
         console.error('Error loading recent scans:', error);

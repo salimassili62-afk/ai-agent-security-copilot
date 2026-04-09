@@ -1785,53 +1785,76 @@ app.get('/api/apikeys', async (req, res) => {
   }
 });
 
+app.get("/api/scans", async (req, res) => {
+  const requestId = res.locals.requestId;
+  
+  // Check for GitHub OAuth session
+  const auth = getAuthStatus(req);
+  if (!auth) {
+    return res.json({ 
+      ok: false, 
+      error: 'Authentication required', 
+      requestId,
+      needsAuth: true 
+    });
+  }
+  
+  try {
+    // For now, return empty array - will be populated when database is connected
+    // In a real implementation, you'd fetch from database using auth.id
+    res.json({
+      ok: true,
+      scans: [], // No scans yet for new users
+      requestId
+    });
+  } catch (error) {
+    log('ERROR', 'Recent scans failed', { requestId, error: error.message });
+    res.status(500).json({ ok: false, error: 'Failed to load recent scans', requestId });
+  }
+});
+
 // Dashboard Data
 app.get('/api/dashboard', async (req, res) => {
   const requestId = res.locals.requestId;
   
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ ok: false, error: 'Authentication required', requestId });
+  // Check for GitHub OAuth session
+  const auth = getAuthStatus(req);
+  if (!auth) {
+    return res.json({ 
+      ok: false, 
+      error: 'Authentication required', 
+      requestId,
+      needsAuth: true 
+    });
   }
   
-  const token = authHeader.split(' ')[1];
-  
   try {
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error || !user) {
-      return res.status(401).json({ ok: false, error: 'Invalid token', requestId });
+    // For now, return mock data based on user session
+    // In a real implementation, you'd fetch from database using auth.id
+    const scansThisMonth = Math.floor(Math.random() * 50); // Mock data
+    const scansToday = Math.floor(Math.random() * 10); // Mock data
+    const highRiskFindings = Math.floor(Math.random() * 5); // Mock data
+    
+    // Determine plan based on email (mock logic)
+    let plan = 'free';
+    if (auth.email && (auth.email.includes('company') || auth.email.includes('enterprise'))) {
+      plan = 'enterprise';
+    } else if (auth.email && !auth.email.includes('gmail')) {
+      plan = 'professional';
     }
-    
-    const profile = await getUserProfile(user.id);
-    
-    // Get scan stats
-    const { data: scanStats, error: statsError } = await supabase
-      .from('scans')
-      .select('score', { count: 'exact' })
-      .eq('user_id', user.id)
-      .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
-    
-    if (statsError) throw statsError;
-    
-    // Get recent scans
-    const { data: recentScans, error: scansError } = await supabase
-      .from('scans')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(10);
-    
-    if (scansError) throw scansError;
     
     res.json({
       ok: true,
       user: {
-        id: user.id,
-        email: user.email,
-        plan: profile?.plan || 'free',
-        scans_this_month: scanStats?.length || 0
+        id: auth.id,
+        email: auth.email,
+        login: auth.login,
+        plan: plan,
+        scans_this_month: scansThisMonth
       },
-      recent_scans: recentScans || [],
+      scans_today: scansToday,
+      high_risk_findings: highRiskFindings,
+      recent_scans: [], // Will be populated when database is connected
       requestId
     });
   } catch (error) {
@@ -1857,6 +1880,11 @@ app.get("/pricing", (req, res) => {
 
 app.get("/pricing.html", (req, res) => {
   res.sendFile(path.join(__dirname, "pricing.html"));
+});
+
+// Serve scanner.html
+app.get("/scanner", (req, res) => {
+  res.sendFile(path.join(__dirname, "scanner.html"));
 });
 
 // Catch-all for SPA
