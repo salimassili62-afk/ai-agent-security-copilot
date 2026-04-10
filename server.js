@@ -1453,7 +1453,7 @@ app.get('/dashboard', (req, res) => {
     return res.redirect('/?error=not_authenticated');
   }
 
-  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+  res.sendFile(path.join(__dirname, 'dashboard.html'));
 });
 
 // MIDDLEWARE: Auth required for API endpoints (optional)
@@ -1893,10 +1893,6 @@ app.get('/api/dashboard', async (req, res) => {
   }
 });
 
-// Serve dashboard.html
-app.get("/dashboard", (req, res) => {
-  res.sendFile(path.join(__dirname, "dashboard.html"));
-});
 
 // Serve index.html for root
 app.get("/", (req, res) => {
@@ -1914,7 +1910,7 @@ app.get("/pricing.html", (req, res) => {
 
 // Serve scanner.html
 app.get("/scanner", (req, res) => {
-  res.sendFile(path.join(__dirname, "scanner.html"));
+  res.sendFile(path.join(__dirname, "public", "scanner.html"));
 });
 
 // Contact form endpoint
