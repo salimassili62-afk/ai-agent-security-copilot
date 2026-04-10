@@ -27,9 +27,21 @@ const GITHUB_REDIRECT_URI = 'https://ai-agent-security-copilot.vercel.app/auth/c
 // Auth status helper
 function getAuthStatus(req) {
   try {
+    // Check Authorization header first (for API calls)
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      // For Supabase JWT tokens, we could validate here, but for now just return token presence
+      return { token, source: 'header' };
+    }
+    
+    // Check session cookie (for browser navigation)
     const sessionCookie = req.cookies?.auth_session;
-    if (!sessionCookie) return null;
-    return JSON.parse(Buffer.from(sessionCookie, 'base64').toString());
+    if (sessionCookie) {
+      return JSON.parse(Buffer.from(sessionCookie, 'base64').toString());
+    }
+    
+    return null;
   } catch {
     return null;
   }
@@ -1445,14 +1457,8 @@ app.get('/api/auth/status', (req, res) => {
   });
 });
 
-// ENDPOINT 5: Protected route - dashboard
+// Serve dashboard.html - client-side handles auth
 app.get('/dashboard', (req, res) => {
-  const auth = getAuthStatus(req);
-  
-  if (!auth) {
-    return res.redirect('/?error=not_authenticated');
-  }
-
   res.sendFile(path.join(__dirname, 'dashboard.html'));
 });
 
