@@ -1,5 +1,6 @@
 // Updated: 2026-04-09 - pricing and scanner fix
 require('dotenv').config();
+console.log("GROQ KEY STATUS:", process.env.GROQ_API_KEY ? "PRESENT" : "MISSING");
 const express = require("express");
 const crypto = require("crypto");
 const helmet = require("helmet");
@@ -1280,6 +1281,10 @@ app.get('/api/health', (req, res) => {
       stripe: !!process.env.STRIPE_SECRET_KEY,
       stripe_publishable_key: process.env.STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder'
     },
+    // Debug info for Groq API key
+    groq_key_present: !!process.env.GROQ_API_KEY,
+    groq_key_prefix: process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.substring(0,8) : "MISSING",
+    node_env: process.env.NODE_ENV,
     requestId
   });
 });
