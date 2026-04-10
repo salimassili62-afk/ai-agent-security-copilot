@@ -1,4 +1,4 @@
-# Sentinel prime
+# AI Security Copilot
 
 **[🔗 Live Demo](https://ai-agent-security-copilot.vercel.app)** | **[Pricing](pricing.html)** | **[Dashboard](/dashboard)**
 

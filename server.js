@@ -10,7 +10,7 @@ const cookieParser = require("cookie-parser");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_VERSION = "2.3.0";
-const APP_NAME = "Sentinel prime";
+const APP_NAME = "AI Security Copilot";
 
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
@@ -1277,7 +1277,8 @@ app.get('/api/health', (req, res) => {
     services: {
       groq: !!process.env.GROQ_API_KEY,
       supabase: !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY),
-      stripe: !!process.env.STRIPE_SECRET_KEY
+      stripe: !!process.env.STRIPE_SECRET_KEY,
+      stripe_publishable_key: process.env.STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder'
     },
     requestId
   });
@@ -1894,6 +1895,92 @@ app.get("/pricing.html", (req, res) => {
 // Serve scanner.html
 app.get("/scanner", (req, res) => {
   res.sendFile(path.join(__dirname, "scanner.html"));
+});
+
+// Stripe checkout session creation
+app.post('/api/create-checkout-session', async (req, res) => {
+  const requestId = res.locals.requestId;
+  
+  try {
+    const { plan, billing = 'monthly' } = req.body;
+    
+    // Set Stripe price IDs based on plan and billing
+    const priceIds = {
+      professional: {
+        monthly: process.env.STRIPE_PRICE_PROFESSIONAL || 'price_professional_19',
+        yearly: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY || 'price_professional_190'
+      },
+      enterprise: {
+        monthly: process.env.STRIPE_PRICE_ENTERPRISE || 'price_enterprise_99',
+        yearly: process.env.STRIPE_PRICE_ENTERPRISE_YEARLY || 'price_enterprise_990'
+      }
+    };
+    
+    const priceId = priceIds[plan]?.[billing];
+    if (!priceId) {
+      return res.status(400).json({ 
+        error: 'Invalid plan or billing period',
+        requestId 
+      });
+    }
+    
+    // Check if Stripe is configured
+    if (!process.env.STRIPE_SECRET_KEY) {
+      // Fallback: return mock session for development
+      return res.json({
+        id: 'mock_session_' + Date.now(),
+        url: `/pricing?setup=stripe`
+      });
+    }
+    
+    // Initialize Stripe
+    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+    
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      mode: 'subscription',
+      success_url: `${req.protocol}://${req.get('host')}/dashboard?session_id={CHECKOUT_SESSION_ID}&success=true`,
+      cancel_url: `${req.protocol}://${req.get('host')}/pricing?canceled=true`,
+    });
+    
+    res.json({ id: session.id, url: session.url });
+  } catch (error) {
+    log('ERROR', 'Stripe checkout failed', { requestId, error: error.message });
+    res.status(500).json({ 
+      error: 'Failed to create checkout session',
+      requestId 
+    });
+  }
+});
+
+// Contact form endpoint
+app.post('/api/contact', async (req, res) => {
+  const requestId = res.locals.requestId;
+  
+  try {
+    const { name, email, message } = req.body;
+    
+    // Log contact request (in production, you'd send email or save to database)
+    log('INFO', 'Contact form submission', { requestId, name, email });
+    
+    res.json({ 
+      ok: true, 
+      message: 'Thank you for your inquiry. We will get back to you soon.',
+      requestId 
+    });
+  } catch (error) {
+    log('ERROR', 'Contact form failed', { requestId, error: error.message });
+    res.status(500).json({ 
+      error: 'Failed to submit contact form',
+      requestId 
+    });
+  }
 });
 
 // Catch-all for SPA

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Free Scanner - Sentinel prime</title>
+  <title>Free Scanner - AI Security Copilot</title>
   <style>
     :root {
       --bg: #0a0f1a;
@@ -312,7 +312,7 @@
     <div class="nav-content">
       <a href="/" class="logo">
         <div class="logo-icon">🛡️</div>
-        Sentinel prime
+        AI Security Copilot
       </a>
       <div class="nav-links">
         <a href="/">Home</a>
@@ -387,12 +387,12 @@
       const prompt = promptInput.value.trim();
       
       if (!prompt) {
-        alert('Please enter a prompt to scan.');
+        showToast('Please enter a prompt to scan.', 'error');
         return;
       }
 
       if (prompt.length < 10) {
-        alert('Please enter at least 10 characters for a meaningful scan.');
+        showToast('Please enter at least 10 characters for a meaningful scan.', 'error');
         return;
       }
 

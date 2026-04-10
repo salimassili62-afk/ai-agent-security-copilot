@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pricing - Sentinel prime</title>
+  <title>Pricing - AI Security Copilot</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui; background: #0f1419; color: #e1e8ed; line-height: 1.6; }
@@ -219,6 +219,32 @@
         stripe = Stripe('pk_test_51234567890abcdef');
       });
 
+    async function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 16px 24px;
+        background: ${type === 'error' ? '#f4245e' : type === 'success' ? '#1da884' : '#1d9bf0'};
+        color: white;
+        border-radius: 8px;
+        font-family: system-ui;
+        font-size: 14px;
+        z-index: 10000;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        max-width: 400px;
+      `;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s ease';
+        setTimeout(() => document.body.removeChild(toast), 300);
+      }, 5000);
+    }
+
     async function startCheckout(tier) {
       try {
         const priceIds = {
@@ -237,14 +263,14 @@
 
         const data = await response.json();
         if (data.error) {
-          alert('Error: ' + data.error);
+          showToast('Error: ' + data.error, 'error');
           return;
         }
 
         const { error } = await stripe.redirectToCheckout({ sessionId: data.sessionId });
-        if (error) alert('Checkout error: ' + error.message);
+        if (error) showToast('Checkout error: ' + error.message, 'error');
       } catch (error) {
-        alert('Error starting checkout: ' + error.message);
+        showToast('Error starting checkout: ' + error.message, 'error');
       }
     }
   </script>

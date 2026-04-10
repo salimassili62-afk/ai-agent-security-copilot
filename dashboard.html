@@ -441,11 +441,37 @@
           `;
           loadApiKeys();
         } else {
-          alert(data.error || 'Failed to generate API key');
+          showToast(data.error || 'Failed to generate API key', 'error');
         }
       } catch (err) {
-        alert('Failed to generate API key');
+        showToast('Failed to generate API key', 'error');
       }
+    }
+
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 16px 24px;
+        background: ${type === 'error' ? '#f4245e' : type === 'success' ? '#1da884' : '#1d9bf0'};
+        color: white;
+        border-radius: 8px;
+        font-family: system-ui;
+        font-size: 14px;
+        z-index: 10000;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        max-width: 400px;
+      `;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s ease';
+        setTimeout(() => document.body.removeChild(toast), 300);
+      }, 5000);
     }
 
     function logout() {
