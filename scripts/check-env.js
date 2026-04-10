@@ -13,11 +13,11 @@ const required = {
   GROQ_API_KEY: { required: false, hint: 'Get from console.groq.com' },
   
   // Payments (Required for monetization)
-  STRIPE_SECRET_KEY: { required: false, hint: 'Get from Stripe Dashboard > Developers > API Keys' },
-  STRIPE_WEBHOOK_SECRET: { required: false, hint: 'Get from Stripe Dashboard > Developers > Webhooks' },
-  STRIPE_PUBLISHABLE_KEY: { required: false, hint: 'Get from Stripe Dashboard > Developers > API Keys (publishable)' },
-  STRIPE_PRICE_PRO: { required: false, hint: 'Create in Stripe Dashboard > Products, copy Price ID' },
-  STRIPE_PRICE_TEAM: { required: false, hint: 'Create in Stripe Dashboard > Products, copy Price ID' },
+  LEMONSQUEEZY_API_KEY: { required: false, hint: 'Get from Lemon Squeezy Dashboard > Settings > API Keys' },
+  LEMONSQUEEZY_STORE_ID: { required: false, hint: 'Get from Lemon Squeezy Dashboard > Settings > General' },
+  LEMONSQUEEZY_VARIANT_PRO: { required: false, hint: 'Create in Lemon Squeezy Dashboard > Products, copy Variant ID' },
+  LEMONSQUEEZY_VARIANT_ENTERPRISE: { required: false, hint: 'Create in Lemon Squeezy Dashboard > Products, copy Variant ID' },
+  LEMONSQUEEZY_WEBHOOK_SECRET: { required: false, hint: 'Get from Lemon Squeezy Dashboard > Webhooks' },
 };
 
 const optional = {
@@ -86,8 +86,8 @@ if (missing.length > 0) {
   }
   
   // Check if payments are configured
-  if (!process.env.STRIPE_SECRET_KEY) {
-    console.log('\n⚠️  Note: Stripe not configured - payments will not work');
+  if (!process.env.LEMONSQUEEZY_API_KEY) {
+    console.log('\n⚠️  Note: Lemon Squeezy not configured - payments will not work');
   }
   
   console.log('\n🚀 Ready for deployment!');

@@ -13,6 +13,7 @@
     "eval": "node eval/eval.js"
   },
   "dependencies": {
+    "@lemonsqueezy/lemonsqueezy.js": "^4.0.0",
     "@supabase/supabase-js": "^2.47.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

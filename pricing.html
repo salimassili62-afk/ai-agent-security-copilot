@@ -127,7 +127,7 @@
           <span class="amount" id="pro-price">$19</span>
           <span class="period">/month</span>
         </div>
-        <button class="cta-button primary" onclick="startCheckout('pro')">Start Free Trial</button>
+        <button class="cta-button primary" onclick="startCheckout('professional')">Start Free Trial</button>
         <ul class="features">
           <li><span style="color:var(--success)">✓</span> <strong>Unlimited scans</strong></li>
           <li><span style="color:var(--success)">✓</span> AI + security rules</li>
@@ -144,7 +144,7 @@
           <span class="amount" id="team-price">$99</span>
           <span class="period">/month</span>
         </div>
-        <button class="cta-button primary" onclick="startCheckout('team')">Start Free Trial</button>
+        <button class="cta-button primary" onclick="startCheckout('enterprise')">Start Free Trial</button>
         <ul class="features">
           <li><span style="color:var(--success)">✓</span> Everything in Pro</li>
           <li><span style="color:var(--success)">✓</span> Up to 25 members</li>
@@ -172,23 +172,6 @@
   </footer>
 
   <script>
-    // Initialize Stripe with proper key or fallback
-    let stripe;
-    
-    // Try to get Stripe publishable key from server config
-    fetch('/api/health')
-      .then(res => res.json())
-      .then(config => {
-        if (config.stripe_publishable_key) {
-          stripe = Stripe(config.stripe_publishable_key);
-        } else {
-          stripe = Stripe('pk_test_placeholder'); // Fallback for development
-        }
-      })
-      .catch(() => {
-        stripe = Stripe('pk_test_placeholder'); // Fallback
-      });
-    
     let isYearly = false;
     
     function setBilling(type) {
@@ -198,6 +181,44 @@
       });
       document.getElementById('pro-price').textContent = isYearly ? '$16' : '$19';
       document.getElementById('team-price').textContent = isYearly ? '$79' : '$99';
+    }
+    
+    async function startCheckout(plan) {
+      try {
+        // Get variant ID based on plan
+        const variantId = plan === 'professional' 
+          ? (process.env.LEMONSQUEEZY_VARIANT_PRO || 'variant_pro_placeholder')
+          : (process.env.LEMONSQUEEZY_VARIANT_ENTERPRISE || 'variant_enterprise_placeholder');
+        
+        // Get user email (you might want to collect this or get from auth)
+        const email = prompt('Please enter your email address for the checkout:');
+        if (!email) {
+          return;
+        }
+        
+        const res = await fetch('/api/create-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ variantId, email })
+        });
+        
+        const data = await res.json();
+        
+        if (data.error === "payments_not_configured") {
+          showMessage('Payment system coming soon. Please try again later.', 'info');
+          return;
+        }
+        
+        if (data.checkoutUrl) {
+          // Redirect to Lemon Squeezy checkout
+          window.location.href = data.checkoutUrl;
+        } else {
+          showMessage('Payment system coming soon.', 'info');
+        }
+      } catch (error) {
+        showMessage('Payment system coming soon.', 'info');
+        console.error('Checkout error:', error);
+      }
     }
     
     function showMessage(message, type = 'info') {
@@ -225,39 +246,6 @@
         toast.style.transition = 'opacity 0.3s ease';
         setTimeout(() => document.body.removeChild(toast), 300);
       }, 5000);
-    }
-    
-    async function startCheckout(plan) {
-      try {
-        const res = await fetch('/api/create-checkout-session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ plan, billing: isYearly ? 'yearly' : 'monthly' })
-        });
-        
-        const data = await res.json();
-        
-        if (!res.ok) {
-          throw new Error(data.error || 'Failed to create checkout session');
-        }
-        
-        if (data.id) {
-          // Redirect to Stripe Checkout
-          const result = await stripe.redirectToCheckout({ sessionId: data.id });
-          if (result.error) {
-            throw new Error(result.error.message);
-          }
-        } else {
-          // Fallback for development - show message and redirect to scanner
-          showMessage('Stripe integration is being set up. Redirecting to free scanner...', 'info');
-          setTimeout(() => {
-            window.location.href = '/scanner';
-          }, 2000);
-        }
-      } catch (error) {
-        showMessage('Checkout error: ' + error.message, 'error');
-        console.error('Checkout error:', error);
-      }
     }
   </script>
 </body>

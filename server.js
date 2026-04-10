@@ -1278,8 +1278,8 @@ app.get('/api/health', (req, res) => {
     services: {
       groq: !!process.env.GROQ_API_KEY,
       supabase: !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY),
-      stripe: !!process.env.STRIPE_SECRET_KEY,
-      stripe_publishable_key: process.env.STRIPE_PUBLISHABLE_KEY || 'pk_test_placeholder'
+      lemonsqueezy: !!process.env.LEMONSQUEEZY_API_KEY,
+      lemonsqueezy_configured: !!(process.env.LEMONSQUEEZY_API_KEY && process.env.LEMONSQUEEZY_STORE_ID)
     },
     // Debug info for Groq API key
     groq_key_present: !!process.env.GROQ_API_KEY,
@@ -1594,10 +1594,10 @@ function computeRegressionDiff(baseline, candidate) {
   };
 }
 
-// Stripe setup
-const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
-const STRIPE_PRICE_PRO = process.env.STRIPE_PRICE_PRO || 'price_pro_placeholder';
-const STRIPE_PRICE_TEAM = process.env.STRIPE_PRICE_TEAM || 'price_team_placeholder';
+// Lemon Squeezy setup
+const LEMONSQUEEZY_API_KEY = process.env.LEMONSQUEEZY_API_KEY;
+const LEMONSQUEEZY_STORE_ID = process.env.LEMONSQUEEZY_STORE_ID;
+const LEMONSQUEEZY_WEBHOOK_SECRET = process.env.LEMONSQUEEZY_WEBHOOK_SECRET;
 
 // Helper: Get or create user profile
 async function getUserProfile(userId) {
@@ -1623,101 +1623,116 @@ async function getUserProfile(userId) {
   }
 }
 
-// Stripe Checkout
-app.post('/api/checkout', async (req, res) => {
+// Lemon Squeezy Checkout
+app.post('/api/create-checkout', async (req, res) => {
   const requestId = res.locals.requestId;
   
-  if (!stripe) {
-    return res.status(400).json({ ok: false, error: 'Stripe not configured', requestId });
-  }
-  
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ ok: false, error: 'Authentication required', requestId });
-  }
-  
-  const token = authHeader.split(' ')[1];
-  const { plan = 'pro' } = req.body || {};
-  
   try {
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error || !user) {
-      return res.status(401).json({ ok: false, error: 'Invalid token', requestId });
+    const { variantId, email } = req.body;
+    
+    // Check if Lemon Squeezy is configured
+    if (!LEMONSQUEEZY_API_KEY || !LEMONSQUEEZY_STORE_ID) {
+      return res.json({ error: "payments_not_configured" });
     }
     
-    const priceId = plan === 'team' ? STRIPE_PRICE_TEAM : STRIPE_PRICE_PRO;
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-    const host = req.headers['x-forwarded-host'] || req.headers.host || req.get('host');
-    
-    const session = await stripe.checkout.sessions.create({
-      customer_email: user.email,
-      line_items: [{ price: priceId, quantity: 1 }],
-      mode: 'subscription',
-      success_url: `${protocol}://${host}/dashboard?success=true`,
-      cancel_url: `${protocol}://${host}/pricing?canceled=true`,
-      metadata: { userId: user.id, plan }
+    // Create checkout via Lemon Squeezy API
+    const response = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/vnd.api+json',
+        'Content-Type': 'application/vnd.api+json',
+        'Authorization': `Bearer ${LEMONSQUEEZY_API_KEY}`
+      },
+      body: JSON.stringify({
+        data: {
+          type: 'checkouts',
+          attributes: {
+            store_id: LEMONSQUEEZY_STORE_ID,
+            variant_id: variantId,
+            customer_email: email,
+            product_options: {
+              redirect_url: `${req.protocol}://${req.get('host')}/dashboard?success=true`,
+              receipt_button_url: `${req.protocol}://${req.get('host')}/dashboard`,
+              receipt_link_url: `${req.protocol}://${req.get('host')}/dashboard`,
+              receipt_thank_you_page_url: `${req.protocol}://${req.get('host')}/dashboard`
+            }
+          }
+        }
+      })
     });
     
-    res.json({ ok: true, url: session.url, requestId });
+    if (!response.ok) {
+      throw new Error(`Lemon Squeezy API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const checkoutUrl = data.data.attributes.url;
+    
+    res.json({ checkoutUrl });
   } catch (error) {
-    log('ERROR', 'Checkout failed', { requestId, error: error.message });
-    res.status(500).json({ ok: false, error: 'Payment setup failed', requestId });
+    log('ERROR', 'Lemon Squeezy checkout failed', { requestId, error: error.message });
+    res.status(500).json({ error: 'Failed to create checkout session' });
   }
 });
 
-// Stripe Webhook
-app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+// Lemon Squeezy Webhook
+app.post('/api/lemonsqueezy-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const requestId = res.locals.requestId;
   
-  if (!stripe || !endpointSecret) {
-    return res.status(400).json({ ok: false, error: 'Stripe not configured' });
+  if (!LEMONSQUEEZY_WEBHOOK_SECRET) {
+    log('ERROR', 'Lemon Squeezy webhook not configured', { requestId });
+    return res.status(400).json({ ok: false, error: 'Webhook not configured' });
   }
   
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-  } catch (err) {
-    log('ERROR', 'Webhook signature verification failed', { error: err.message });
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+  const signature = req.headers['x-signature'];
+  if (!signature) {
+    log('ERROR', 'Missing webhook signature', { requestId });
+    return res.status(400).json({ ok: false, error: 'Missing signature' });
+  }
+  
+  // Verify webhook signature (simplified - in production you'd use crypto)
+  const crypto = require('crypto');
+  const hmac = crypto.createHmac('sha256', LEMONSQUEEZY_WEBHOOK_SECRET);
+  const digest = hmac.update(req.body).digest('hex');
+  
+  if (signature !== digest) {
+    log('ERROR', 'Invalid webhook signature', { requestId });
+    return res.status(400).json({ ok: false, error: 'Invalid signature' });
   }
   
   try {
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-      const userId = session.metadata?.userId;
-      const plan = session.metadata?.plan || 'pro';
-      
-      if (userId && supabase) {
-        await supabase.from('user_profiles').upsert({
-          id: userId,
-          plan: plan,
-          stripe_customer_id: session.customer,
-          stripe_subscription_id: session.subscription,
-          updated_at: new Date().toISOString()
-        });
-        log('INFO', 'User upgraded', { userId, plan });
-      }
-    }
+    const event = JSON.parse(req.body);
     
-    if (event.type === 'customer.subscription.deleted') {
-      const subscription = event.data.object;
-      const customerId = subscription.customer;
+    if (event.meta.event_name === 'order_created') {
+      const order = event.data.attributes;
+      const userEmail = order.user_email;
+      const variantId = order.variant_id;
       
-      if (supabase) {
-        const { data: profile } = await supabase
-          .from('user_profiles')
-          .select('id')
-          .eq('stripe_customer_id', customerId)
-          .single();
-        
-        if (profile) {
-          await supabase.from('user_profiles').update({
-            plan: 'free',
-            stripe_subscription_id: null,
-            updated_at: new Date().toISOString()
-          }).eq('id', profile.id);
-          log('INFO', 'User downgraded to free', { userId: profile.id });
+      // Determine plan based on variant ID
+      const proVariantId = process.env.LEMONSQUEEZY_VARIANT_PRO;
+      const enterpriseVariantId = process.env.LEMONSQUEEZY_VARIANT_ENTERPRISE;
+      
+      let plan = 'free';
+      if (variantId === proVariantId) {
+        plan = 'professional';
+      } else if (variantId === enterpriseVariantId) {
+        plan = 'enterprise';
+      }
+      
+      // Update user plan in Supabase
+      if (supabase && userEmail && plan !== 'free') {
+        try {
+          await supabase
+            .from('user_profiles')
+            .update({
+              plan: plan,
+              updated_at: new Date().toISOString()
+            })
+            .eq('email', userEmail);
+          
+          log('INFO', 'User plan updated via Lemon Squeezy', { requestId, userEmail, plan });
+        } catch (error) {
+          log('ERROR', 'Failed to update user plan', { requestId, userEmail, plan, error: error.message });
         }
       }
     }
@@ -1900,68 +1915,6 @@ app.get("/pricing.html", (req, res) => {
 // Serve scanner.html
 app.get("/scanner", (req, res) => {
   res.sendFile(path.join(__dirname, "scanner.html"));
-});
-
-// Stripe checkout session creation
-app.post('/api/create-checkout-session', async (req, res) => {
-  const requestId = res.locals.requestId;
-  
-  try {
-    const { plan, billing = 'monthly' } = req.body;
-    
-    // Set Stripe price IDs based on plan and billing
-    const priceIds = {
-      professional: {
-        monthly: process.env.STRIPE_PRICE_PROFESSIONAL || 'price_professional_19',
-        yearly: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY || 'price_professional_190'
-      },
-      enterprise: {
-        monthly: process.env.STRIPE_PRICE_ENTERPRISE || 'price_enterprise_99',
-        yearly: process.env.STRIPE_PRICE_ENTERPRISE_YEARLY || 'price_enterprise_990'
-      }
-    };
-    
-    const priceId = priceIds[plan]?.[billing];
-    if (!priceId) {
-      return res.status(400).json({ 
-        error: 'Invalid plan or billing period',
-        requestId 
-      });
-    }
-    
-    // Check if Stripe is configured
-    if (!process.env.STRIPE_SECRET_KEY) {
-      // Fallback: return mock session for development
-      return res.json({
-        id: 'mock_session_' + Date.now(),
-        url: `/pricing?setup=stripe`
-      });
-    }
-    
-    // Initialize Stripe
-    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-    
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      mode: 'subscription',
-      success_url: `${req.protocol}://${req.get('host')}/dashboard?session_id={CHECKOUT_SESSION_ID}&success=true`,
-      cancel_url: `${req.protocol}://${req.get('host')}/pricing?canceled=true`,
-    });
-    
-    res.json({ id: session.id, url: session.url });
-  } catch (error) {
-    log('ERROR', 'Stripe checkout failed', { requestId, error: error.message });
-    res.status(500).json({ 
-      error: 'Failed to create checkout session',
-      requestId 
-    });
-  }
 });
 
 // Contact form endpoint
