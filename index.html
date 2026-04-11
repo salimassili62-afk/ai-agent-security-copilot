@@ -1616,6 +1616,12 @@ Schema:
       window.scrollTo(0, 0);
     }
     
+    // Check URL params for OAuth errors
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('error') === 'oauth_not_configured') {
+      alert('GitHub OAuth is not configured. Please contact the administrator.');
+    }
+    
     // Check URL params for direct scanner access
     if (window.location.search.includes('scanner') || window.location.search.includes('signup')) {
       showScanner();

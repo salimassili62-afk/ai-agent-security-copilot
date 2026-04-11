@@ -284,14 +284,19 @@
           const prices = { free: '$0', professional: '$19', enterprise: '$99' };
           document.getElementById('billing').textContent = `Monthly (${prices[plan]})`;
           
-          // Update stats
+          // Update stats with REAL data from API
           const scansThisMonth = data.user.scans_this_month || 0;
           const scansToday = data.scans_today || 0;
           const highRiskFindings = data.high_risk_findings || 0;
+          const apiKeyCount = data.api_key_count || 0;
           
           document.getElementById('scansThisMonth').textContent = scansThisMonth.toLocaleString();
           document.getElementById('scansToday').textContent = scansToday.toLocaleString();
           document.getElementById('highRiskCount').textContent = highRiskFindings.toLocaleString();
+          document.getElementById('apiKeysCount').textContent = apiKeyCount.toLocaleString();
+          
+          // Update recent scans section
+          updateRecentScans(data.recent_scans || []);
           
           // Update usage progress
           const percentage = limit > 0 ? (scansThisMonth / limit * 100).toFixed(1) : 0;
@@ -303,17 +308,23 @@
           // Auth required - show warning
           if (authWarning) authWarning.style.display = 'block';
           
-          // Clear mock data, show sign-in state
+          // Clear all data, show sign-in state with zeros
           document.getElementById('currentPlan').textContent = 'SIGN IN';
           document.getElementById('currentPlan').className = 'badge free';
-          document.getElementById('scanLimit').textContent = '—';
+          document.getElementById('scanLimit').textContent = '0';
           document.getElementById('billing').textContent = 'Sign in to see your plan';
-          document.getElementById('scansThisMonth').textContent = '—';
-          document.getElementById('scansToday').textContent = '—';
-          document.getElementById('highRiskCount').textContent = '—';
-          document.getElementById('apiKeysCount').textContent = '—';
-          document.getElementById('usageText').textContent = '— / —';
+          document.getElementById('scansThisMonth').textContent = '0';
+          document.getElementById('scansToday').textContent = '0';
+          document.getElementById('highRiskCount').textContent = '0';
+          document.getElementById('apiKeysCount').textContent = '0';
+          document.getElementById('usageText').textContent = '0 / 0';
           document.getElementById('usageProgress').style.width = '0%';
+          
+          // Show "sign in to see scans" message
+          const scansContainer = document.getElementById('recent-scans');
+          if (scansContainer) {
+            scansContainer.innerHTML = '<p style="color: #b0b9c1; text-align: center; padding: 20px;">Sign in to see your scan history</p>';
+          }
           
           return false;
         }
@@ -343,10 +354,57 @@
       window.location.href = '/';
     }
 
-    // Load recent scans with auth
+    // Update recent scans display from dashboard data
+    function updateRecentScans(scans) {
+      const scansContainer = document.getElementById('recent-scans');
+      if (!scansContainer) return;
+      
+      if (scans && scans.length > 0) {
+        let html = '';
+        scans.forEach(scan => {
+          const riskClass = scan.result_score >= 75 ? 'risk-high' : 
+                           scan.result_score >= 40 ? 'risk-med' : 'risk-low';
+          const riskLabel = scan.result_score >= 75 ? 'HIGH' : 
+                           scan.result_score >= 40 ? 'MEDIUM' : 'LOW';
+          
+          html += `
+            <div style="background: #0f1419; border: 1px solid #2f3a47; padding: 15px; border-radius: 6px; margin-bottom: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <strong>Scan #${scan.id?.slice(0, 8) || 'Unknown'}</strong>
+                  <div style="color: #b0b9c1; font-size: 12px; margin-top: 5px;">
+                    ${new Date(scan.created_at).toLocaleString()}
+                  </div>
+                </div>
+                <div style="text-align: right;">
+                  <span class="badge ${riskClass}" style="background: ${
+                    riskClass === 'risk-high' ? '#f4245e' : 
+                    riskClass === 'risk-med' ? '#f59e0b' : '#10b981'
+                  }">${riskLabel} RISK</span>
+                  <div style="color: #b0b9c1; font-size: 12px; margin-top: 5px;">
+                    Score: ${scan.result_score || 0}/100
+                  </div>
+                </div>
+              </div>
+            </div>`;
+        });
+        scansContainer.innerHTML = html;
+      } else {
+        scansContainer.innerHTML = '<p style="color: #b0b9c1; text-align: center; padding: 20px;">No scans yet. Go to the <a href="/scanner" style="color: #1d9bf0;">scanner</a> to get started.</p>';
+      }
+    }
+
+    // Load recent scans with auth (fallback if updateRecentScans wasn't called)
     async function loadRecentScans() {
       const token = getAuthToken();
-      if (!token) return;
+      if (!token) {
+        // Show sign-in message if no token
+        const scansContainer = document.getElementById('recent-scans');
+        if (scansContainer) {
+          scansContainer.innerHTML = '<p style="color: #b0b9c1; text-align: center; padding: 20px;">Sign in to see your scan history</p>';
+        }
+        return;
+      }
       
       try {
         const res = await fetch('/api/scans', {
@@ -356,43 +414,10 @@
         });
         const data = await res.json();
         
-        const scansContainer = document.getElementById('recent-scans');
-        
         if (data.scans && data.scans.length > 0) {
-          const recentScans = data.scans.slice(0, 5);
-          let html = '';
-          
-          recentScans.forEach(scan => {
-            const riskClass = scan.result_score >= 75 ? 'risk-high' : 
-                             scan.result_score >= 40 ? 'risk-med' : 'risk-low';
-            const riskLabel = scan.result_score >= 75 ? 'HIGH' : 
-                             scan.result_score >= 40 ? 'MEDIUM' : 'LOW';
-            
-            html += `
-              <div style="background: #0f1419; border: 1px solid #2f3a47; padding: 15px; border-radius: 6px; margin-bottom: 10px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <div>
-                    <strong>Scan #${scan.id?.slice(0, 8) || 'Unknown'}</strong>
-                    <div style="color: #b0b9c1; font-size: 12px; margin-top: 5px;">
-                      ${new Date(scan.created_at).toLocaleString()}
-                    </div>
-                  </div>
-                  <div style="text-align: right;">
-                    <span class="badge ${riskClass}" style="background: ${
-                      riskClass === 'risk-high' ? '#f4245e' : 
-                      riskClass === 'risk-med' ? '#f59e0b' : '#10b981'
-                    }">${riskLabel} RISK</span>
-                    <div style="color: #b0b9c1; font-size: 12px; margin-top: 5px;">
-                      Score: ${scan.result_score || 0}/100
-                    </div>
-                  </div>
-                </div>
-              </div>`;
-          });
-          
-          scansContainer.innerHTML = html;
+          updateRecentScans(data.scans.slice(0, 5));
         } else {
-          scansContainer.innerHTML = '<p style="color: #b0b9c1;">No scans yet. Start scanning to see your results here.</p>';
+          updateRecentScans([]);
         }
       } catch (error) {
         console.error('Error loading recent scans:', error);

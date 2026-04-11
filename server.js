@@ -1524,24 +1524,21 @@ app.get('/auth/callback', async (req, res) => {
       avatar: userData.avatar_url,
       name: userData.name,
       authenticated_at: new Date().toISOString(),
-      access_token: accessToken,
     };
-
-    const sessionToken = Buffer.from(JSON.stringify(sessionData)).toString('base64');
-
-    // Set secure cookie
-    res.cookie('auth_session', sessionToken, {
+    
+    // Set session cookie (HTTP-only, secure) for server-side auth
+    res.cookie('auth_session', Buffer.from(JSON.stringify(sessionData)).toString('base64'), {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: true,
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
 
     log('INFO', 'User authenticated successfully', { userId: userData.id, login: userData.login, email: userEmail });
 
-    // Redirect to dashboard
-    res.redirect('/dashboard');
+    // Redirect to dashboard with token in hash for frontend capture
+    const userDataEncoded = encodeURIComponent(JSON.stringify(sessionData));
+    res.redirect(`/dashboard#access_token=session&user=${userDataEncoded}`);
   } catch (error) {
     log('ERROR', 'Auth callback exception', { error: error.message, stack: error.stack });
     res.redirect(`/?error=auth_error&details=${encodeURIComponent(error.message)}`);
@@ -1947,7 +1944,7 @@ app.get('/api/apikeys', async (req, res) => {
   }
 });
 
-// Dashboard Data
+// Dashboard Data - returns REAL data from Supabase
 app.get('/api/dashboard', async (req, res) => {
   const requestId = res.locals.requestId;
   
@@ -1963,18 +1960,61 @@ app.get('/api/dashboard', async (req, res) => {
   }
   
   try {
-    // For now, return mock data based on user session
-    // In a real implementation, you'd fetch from database using auth.id
-    const scansThisMonth = Math.floor(Math.random() * 50); // Mock data
-    const scansToday = Math.floor(Math.random() * 10); // Mock data
-    const highRiskFindings = Math.floor(Math.random() * 5); // Mock data
-    
-    // Determine plan based on email (mock logic)
+    let scansThisMonth = 0;
+    let scansToday = 0;
+    let highRiskFindings = 0;
+    let apiKeyCount = 0;
+    let recentScans = [];
     let plan = 'free';
-    if (auth.email && (auth.email.includes('company') || auth.email.includes('enterprise'))) {
-      plan = 'enterprise';
-    } else if (auth.email && !auth.email.includes('gmail')) {
-      plan = 'professional';
+    
+    // Query real data from Supabase if available
+    if (supabase) {
+      // Get user's profile for plan
+      const { data: profile, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('plan')
+        .eq('id', auth.id)
+        .single();
+      
+      if (!profileError && profile) {
+        plan = profile.plan || 'free';
+      }
+      
+      // Count scans this month
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+      
+      const { data: scans, error: scansError } = await supabase
+        .from('scans')
+        .select('*')
+        .eq('user_id', auth.id)
+        .gte('created_at', monthStart.toISOString())
+        .order('created_at', { ascending: false });
+      
+      if (!scansError && scans) {
+        scansThisMonth = scans.length;
+        recentScans = scans.slice(0, 5);
+        
+        // Count today's scans
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        scansToday = scans.filter(s => new Date(s.created_at) >= todayStart).length;
+        
+        // Count high risk findings
+        highRiskFindings = scans.filter(s => s.result_score >= 75).length;
+      }
+      
+      // Count API keys
+      const { data: keys, error: keysError } = await supabase
+        .from('api_keys')
+        .select('id')
+        .eq('user_id', auth.id)
+        .is('revoked_at', null);
+      
+      if (!keysError && keys) {
+        apiKeyCount = keys.length;
+      }
     }
     
     res.json({
@@ -1988,7 +2028,8 @@ app.get('/api/dashboard', async (req, res) => {
       },
       scans_today: scansToday,
       high_risk_findings: highRiskFindings,
-      recent_scans: [], // Will be populated when database is connected
+      api_key_count: apiKeyCount,
+      recent_scans: recentScans,
       requestId
     });
   } catch (error) {
