@@ -2,6 +2,13 @@
 <html>
 <head>
   <title>Dashboard - AI Security Copilot</title>
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script>
+    // Initialize Supabase client
+    const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQzOX0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  </script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui; background: #0f1419; color: #e1e8ed; }
@@ -233,22 +240,20 @@
       }
     }
 
-    // Get auth token from localStorage or URL params
-    function getAuthToken() {
-      // Check URL hash for token (after OAuth redirect)
-      const hash = window.location.hash;
-      if (hash && hash.includes('access_token')) {
-        const params = new URLSearchParams(hash.substring(1));
-        const token = params.get('access_token');
-        if (token) {
-          localStorage.setItem('access_token', token);
-          // Clean URL
-          window.history.replaceState({}, document.title, window.location.pathname);
-          return token;
-        }
+    // Get current Supabase session
+    async function getSupabaseSession() {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) {
+        console.error('Error getting session:', error);
+        return null;
       }
-      // Check localStorage
-      return localStorage.getItem('access_token');
+      return session;
+    }
+
+    // Get auth token from Supabase session
+    async function getAuthToken() {
+      const session = await getSupabaseSession();
+      return session?.access_token || null;
     }
 
     // Check auth status - returns token or null, doesn't show UI
@@ -348,9 +353,8 @@
     }
 
     // Logout function
-    function logout() {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('user');
+    async function logout() {
+      await supabase.auth.signOut();
       window.location.href = '/';
     }
 

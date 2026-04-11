@@ -4,6 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Agent Security Copilot</title>
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script>
+    // Initialize Supabase client
+    const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQzOX0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  </script>
   <style>
     :root {
       --bg: #0b1220;
@@ -639,13 +646,11 @@ Schema:
         
         if (token) {
           accessToken = token;
-          localStorage.setItem('access_token', token);
-          
+          // Use Supabase to handle authentication
+          supabase.auth.setAuth(token);
           if (refresh) {
             refreshToken = refresh;
-            localStorage.setItem('refresh_token', refresh);
           }
-          
           if (userStr) {
             try {
               currentUser = JSON.parse(decodeURIComponent(userStr));
@@ -653,7 +658,6 @@ Schema:
               console.error('Failed to parse user data:', e);
             }
           }
-          
           // Clean URL
           window.history.replaceState({}, document.title, '/');
           showToast('Signed in successfully!');
@@ -755,27 +759,53 @@ Schema:
     }
 
     async function startGitHubLogin() {
-      // Direct redirect to simple auth endpoint
-      window.location.href = '/auth/login';
+      // Use Supabase GitHub OAuth
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+          redirectTo: 'https://ai-agent-security-copilot.vercel.app/dashboard'
+        }
+      });
+      
+      if (error) {
+        console.error('OAuth error:', error);
+        alert('Failed to start GitHub login: ' + error.message);
+      }
+      // If successful, Supabase will redirect to GitHub
     }
 
     async function logout() {
-      // Direct redirect to simple logout endpoint
-      window.location.href = '/auth/logout';
+      await supabase.auth.signOut();
+      currentUser = null;
+      accessToken = null;
+      updateAuthUI(false);
+      showToast('Logged out successfully');
     }
 
     async function loadCloudHistory() {
-      if (!accessToken) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      
       try {
         const res = await fetch("/api/scans", {
-          headers: { "Authorization": `Bearer ${accessToken}` }
+          headers: { "Authorization": `Bearer ${session.access_token}` }
         });
         const data = await res.json();
         if (data.scans?.length > 0) {
-          renderCloudHistory(data.scans);
+          // Transform scans to match local format
+          const scans = data.scans.map(s => ({
+            content: s.content?.substring(0, 100) || "Scan from cloud",
+            score: s.result_score || 0,
+            severity: s.result_score >= 75 ? 'high' : s.result_score >= 40 ? 'medium' : 'low',
+            timestamp: new Date(s.created_at).getTime()
+          }));
+          
+          localHistory = scans;
+          updateHistoryUI();
+          showToast(`Loaded ${scans.length} scans from cloud`);
         }
       } catch (e) {
-        // Fall back to local history
+        console.error('Error loading cloud history:', e);
       }
     }
 
