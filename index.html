@@ -759,19 +759,7 @@ Schema:
     }
 
     async function startGitHubLogin() {
-      // Use Supabase GitHub OAuth
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'github',
-        options: {
-          redirectTo: 'https://ai-agent-security-copilot.vercel.app/dashboard'
-        }
-      });
-      
-      if (error) {
-        console.error('OAuth error:', error);
-        alert('Failed to start GitHub login: ' + error.message);
-      }
-      // If successful, Supabase will redirect to GitHub
+      window.location.href = 'https://khysogghgvhoqymsgncr.supabase.co/auth/v1/authorize?provider=github&redirect_to=https://ai-agent-security-copilot.vercel.app/dashboard';
     }
 
     async function logout() {
