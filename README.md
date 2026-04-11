@@ -6,7 +6,7 @@
 
 Stop wondering "did this change make my prompt less safe?" Get a clear answer in 2 seconds.
 
-![Sentinel prime Demo](screenshots/demo-scan.png)
+![AI Security Copilot Demo](screenshots/demo-scan.png)
 
 ## Why This Exists
 

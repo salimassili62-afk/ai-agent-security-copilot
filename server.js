@@ -15,7 +15,10 @@ const APP_NAME = "AI Security Copilot";
 
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
-const MAX_SCAN_CHARS = 10000;
+// Character limits per tier (server-side enforcement)
+const MAX_SCAN_CHARS_FREE = 15000;
+const MAX_SCAN_CHARS_PRO = 50000;
+const MAX_SCAN_CHARS_ENTERPRISE = 100000;
 const GROQ_TIMEOUT_MS = 30000;
 const SCAN_CACHE_MS = 60000;
 
@@ -107,9 +110,15 @@ function getClientIp(req) {
   }
 }
 
-function sanitizeInput(input) {
+function sanitizeInput(input, tier = 'free') {
   if (typeof input !== 'string') return '';
-  return input.replace(/\x00/g, '').slice(0, MAX_SCAN_CHARS).trim();
+  const limits = {
+    free: MAX_SCAN_CHARS_FREE,
+    pro: MAX_SCAN_CHARS_PRO,
+    enterprise: MAX_SCAN_CHARS_ENTERPRISE
+  };
+  const limit = limits[tier] || limits.free;
+  return input.replace(/\x00/g, '').slice(0, limit).trim();
 }
 
 function rateLimitScan(req, res, next) {
@@ -122,13 +131,21 @@ function rateLimitScan(req, res, next) {
       rateBuckets.set(ip, bucket);
     }
     bucket.count++;
+    
+    const remaining = Math.max(0, 60 - bucket.count);
+    const resetInSeconds = Math.ceil((bucket.resetAt - now) / 1000);
+    
     res.setHeader("X-RateLimit-Limit", "60");
-    res.setHeader("X-RateLimit-Remaining", Math.max(0, 60 - bucket.count).toString());
+    res.setHeader("X-RateLimit-Remaining", remaining.toString());
+    res.setHeader("X-RateLimit-Reset-In", resetInSeconds.toString());
+    
     if (bucket.count > 60) {
-      log('WARN', 'Rate limit exceeded', { ip, count: bucket.count });
+      log('WARN', 'Rate limit exceeded', { ip, count: bucket.count, resetInSeconds });
       return res.status(429).json({ 
         ok: false,
-        error: "You've reached the limit of 60 scans per 15 minutes. Please wait a moment and try again.", 
+        error: "Rate limit exceeded",
+        message: `You've reached the limit of 60 scans per 15 minutes. Try again in ${resetInSeconds} seconds.`,
+        resetInSeconds,
         requestId: res.locals.requestId 
       });
     }
@@ -1174,11 +1191,38 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
     const { content, scanContext, compareBaseline } = req.body || {};
     
     if (!content || typeof content !== "string") {
-      return res.status(400).json({ ok: false, error: "Provide text content to scan.", requestId });
+      return res.status(400).json({ 
+        ok: false, 
+        error: "Missing scan content",
+        what: "No content provided in request body",
+        where: "POST /api/scans",
+        why: "The 'content' field is required",
+        howToFix: "Include { \"content\": \"text to scan\" } in your request body",
+        requestId 
+      });
     }
     
-    if (content.length > MAX_SCAN_CHARS) {
-      return res.status(400).json({ ok: false, error: `Content too long (${content.length} chars, max ${MAX_SCAN_CHARS}). Trim or split into chunks.`, requestId });
+    // Determine user's tier for character limit
+    const auth = getAuthStatus(req);
+    const userTier = auth?.plan || 'free';
+    const tierLimits = {
+      free: MAX_SCAN_CHARS_FREE,
+      pro: MAX_SCAN_CHARS_PRO,
+      professional: MAX_SCAN_CHARS_PRO,
+      enterprise: MAX_SCAN_CHARS_ENTERPRISE
+    };
+    const maxChars = tierLimits[userTier] || MAX_SCAN_CHARS_FREE;
+    
+    if (content.length > maxChars) {
+      return res.status(400).json({ 
+        ok: false, 
+        error: "Content too long",
+        what: `Your input is ${content.length.toLocaleString()} characters`,
+        where: "Scan request body",
+        why: `Free tier allows ${MAX_SCAN_CHARS_FREE.toLocaleString()}, Pro ${MAX_SCAN_CHARS_PRO.toLocaleString()}, Enterprise ${MAX_SCAN_CHARS_ENTERPRISE.toLocaleString()} characters`,
+        howToFix: userTier === 'free' ? "Upgrade to Pro at /pricing for 50K limit, or split content into smaller chunks" : "Split content into smaller chunks",
+        requestId 
+      });
     }
 
     const groqApiKey = process.env.GROQ_API_KEY;
@@ -1299,6 +1343,80 @@ app.get('/api/health', (req, res) => {
     node_env: process.env.NODE_ENV,
     requestId
   });
+});
+
+// Groq health check - tests actual connectivity
+app.get('/api/health/groq', async (req, res) => {
+  const requestId = res.locals?.requestId || crypto.randomUUID();
+  const groqApiKey = process.env.GROQ_API_KEY;
+  
+  log('INFO', 'Groq health check requested', { requestId });
+  
+  if (!groqApiKey) {
+    log('ERROR', 'Groq health check failed - no API key', { requestId });
+    return res.status(503).json({
+      ok: false,
+      status: 'unavailable',
+      what: 'Groq API key is not configured',
+      where: 'Environment variable GROQ_API_KEY',
+      why: 'The API key is missing or empty',
+      howToFix: 'Set GROQ_API_KEY environment variable in Vercel dashboard. Get your key from https://console.groq.com',
+      env_var_present: false,
+      requestId
+    });
+  }
+  
+  try {
+    // Test actual Groq connectivity with a minimal request
+    const testResponse = await fetch(`${GROQ_BASE_URL}/models`, {
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 5000
+    });
+    
+    if (testResponse.ok) {
+      const models = await testResponse.json();
+      log('INFO', 'Groq health check passed', { requestId, modelsAvailable: models.data?.length || 0 });
+      return res.json({
+        ok: true,
+        status: 'connected',
+        what: 'Groq API is reachable',
+        where: 'https://api.groq.com',
+        modelsAvailable: models.data?.length || 0,
+        keyPrefix: groqApiKey.substring(0, 8) + '...',
+        env_var_present: true,
+        requestId
+      });
+    } else {
+      const errorText = await testResponse.text();
+      log('ERROR', 'Groq health check failed - API error', { requestId, status: testResponse.status, error: errorText });
+      return res.status(503).json({
+        ok: false,
+        status: 'error',
+        what: `Groq API returned error ${testResponse.status}`,
+        where: 'https://api.groq.com/openai/v1/models',
+        why: errorText,
+        howToFix: testResponse.status === 401 ? 'Your GROQ_API_KEY is invalid. Check the key at https://console.groq.com' : 'Groq service may be temporarily unavailable. Try again in a few moments.',
+        httpStatus: testResponse.status,
+        env_var_present: true,
+        requestId
+      });
+    }
+  } catch (error) {
+    log('ERROR', 'Groq health check failed - connection error', { requestId, error: error.message });
+    return res.status(503).json({
+      ok: false,
+      status: 'connection_failed',
+      what: 'Unable to connect to Groq API',
+      where: 'https://api.groq.com',
+      why: error.message,
+      howToFix: 'Check your internet connection. If on Vercel, verify outbound HTTPS is not blocked. Try again in a few moments.',
+      env_var_present: true,
+      requestId
+    });
+  }
 });
 
 // ENDPOINT 1: Initiate GitHub OAuth login
@@ -1817,35 +1935,15 @@ app.get('/api/apikeys', async (req, res) => {
     res.json({ ok: true, keys: keys || [], requestId });
   } catch (error) {
     log('ERROR', 'API key list failed', { requestId, error: error.message });
-    res.status(500).json({ ok: false, error: 'Failed to list API keys', requestId });
-  }
-});
-
-app.get("/api/scans", async (req, res) => {
-  const requestId = res.locals.requestId;
-  
-  // Check for GitHub OAuth session
-  const auth = getAuthStatus(req);
-  if (!auth) {
-    return res.json({ 
+    res.status(500).json({ 
       ok: false, 
-      error: 'Authentication required', 
-      requestId,
-      needsAuth: true 
+      error: "Unable to retrieve API keys",
+      what: "Database query failed",
+      where: "GET /api/apikeys",
+      why: error.message,
+      howToFix: "Try again in a few moments. If the problem persists, contact support.",
+      requestId 
     });
-  }
-  
-  try {
-    // For now, return empty array - will be populated when database is connected
-    // In a real implementation, you'd fetch from database using auth.id
-    res.json({
-      ok: true,
-      scans: [], // No scans yet for new users
-      requestId
-    });
-  } catch (error) {
-    log('ERROR', 'Recent scans failed', { requestId, error: error.message });
-    res.status(500).json({ ok: false, error: 'Failed to load recent scans', requestId });
   }
 });
 
@@ -1895,7 +1993,15 @@ app.get('/api/dashboard', async (req, res) => {
     });
   } catch (error) {
     log('ERROR', 'Dashboard data failed', { requestId, error: error.message });
-    res.status(500).json({ ok: false, error: 'Failed to load dashboard', requestId });
+    res.status(500).json({ 
+      ok: false, 
+      error: "Unable to load dashboard",
+      what: "Failed to retrieve user data",
+      where: "GET /api/dashboard",
+      why: error.message,
+      howToFix: "Refresh the page. If the problem persists, sign out and sign back in.",
+      requestId 
+    });
   }
 });
 

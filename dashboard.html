@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Dashboard - Sentinel prime</title>
+  <title>Dashboard - AI Security Copilot</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui; background: #0f1419; color: #e1e8ed; }
@@ -251,36 +251,25 @@
       return localStorage.getItem('access_token');
     }
 
-    // Check auth status and show/hide warning
-    async function checkAuth() {
-      const token = getAuthToken();
-      const authWarning = document.getElementById('auth-warning');
-      
-      if (!token) {
-        // No session - show auth warning
-        if (authWarning) authWarning.style.display = 'block';
-        return false;
-      }
-      
-      // Has session - hide auth warning
-      if (authWarning) authWarning.style.display = 'none';
-      return token;
+    // Check auth status - returns token or null, doesn't show UI
+    function getAuthTokenOnly() {
+      return getAuthToken();
     }
 
     // Load dashboard data with auth token
     async function loadDashboardData() {
-      const token = await checkAuth();
-      if (!token) return;
+      const token = getAuthToken();
+      const authWarning = document.getElementById('auth-warning');
       
       try {
-        const res = await fetch('/api/dashboard', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+        const res = await fetch('/api/dashboard', { headers });
         const data = await res.json();
         
         if (data.ok && data.user) {
+          // User is authenticated - hide warning
+          if (authWarning) authWarning.style.display = 'none';
+          
           // Update plan info
           const plan = data.user.plan || 'free';
           document.getElementById('currentPlan').textContent = plan.toUpperCase();
@@ -308,13 +297,31 @@
           const percentage = limit > 0 ? (scansThisMonth / limit * 100).toFixed(1) : 0;
           document.getElementById('usageText').textContent = `${scansThisMonth.toLocaleString()} / ${limit.toLocaleString()}`;
           document.getElementById('usageProgress').style.width = `${percentage}%`;
-        } else if (data.needsAuth) {
+          
+          return true; // Data loaded successfully
+        } else if (data.needsAuth || !token) {
           // Auth required - show warning
-          const authWarning = document.getElementById('auth-warning');
           if (authWarning) authWarning.style.display = 'block';
+          
+          // Clear mock data, show sign-in state
+          document.getElementById('currentPlan').textContent = 'SIGN IN';
+          document.getElementById('currentPlan').className = 'badge free';
+          document.getElementById('scanLimit').textContent = '—';
+          document.getElementById('billing').textContent = 'Sign in to see your plan';
+          document.getElementById('scansThisMonth').textContent = '—';
+          document.getElementById('scansToday').textContent = '—';
+          document.getElementById('highRiskCount').textContent = '—';
+          document.getElementById('apiKeysCount').textContent = '—';
+          document.getElementById('usageText').textContent = '— / —';
+          document.getElementById('usageProgress').style.width = '0%';
+          
+          return false;
         }
       } catch (error) {
         console.error('Error loading dashboard data:', error);
+        // On error, show warning if no token
+        if (!token && authWarning) authWarning.style.display = 'block';
+        return false;
       }
     }
 
@@ -393,12 +400,10 @@
       }
     }
 
-    // Initialize dashboard
+    // Initialize dashboard - always try to load data
     document.addEventListener('DOMContentLoaded', () => {
-      // Check auth immediately to show/hide warning
-      checkAuth().then(token => {
-        if (token) {
-          loadDashboardData();
+      loadDashboardData().then(success => {
+        if (success) {
           loadApiKeys();
           loadRecentScans();
         }

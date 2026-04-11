@@ -1,13 +1,13 @@
-name: 'Sentinel prime'
-description: 'Continuous security regression testing for AI applications - scan LLM prompts, agent traces, and model outputs for security risks'
-author: 'Sentinel prime Team'
+name: 'AI Security Copilot'
+description: 'Continuous security scanning for AI applications - scan LLM prompts, agent traces, and model outputs for prompt injection, data leaks, and security risks'
+author: 'AI Security Copilot Team'
 branding:
   icon: 'shield'
   color: 'blue'
 
 inputs:
   api-key:
-    description: 'API key for Sentinel prime (optional - falls back to local scanning)'
+    description: 'API key for AI Security Copilot (optional - falls back to local scanning)'
     required: false
   scan-path:
     description: 'Path to scan (file or directory)'
