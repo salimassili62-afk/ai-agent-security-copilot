@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: salimassili62-afk/ai-security-copilot@main
+      - uses: salimassili62-afk/ai-agent-security-copilot@main
         with:
           path: './prompts/system.txt'
           compare-baseline: './prompts/system-baseline.txt'
@@ -65,8 +65,8 @@ The action will comment on PRs if security risk increased.
 
 ```bash
 # Install
-git clone https://github.com/salimassili62-afk/ai-security-copilot.git
-cd ai-security-copilot
+git clone https://github.com/salimassili62-afk/ai-agent-security-copilot.git
+cd ai-agent-security-copilot
 npm install
 
 # Scan single file
@@ -82,8 +82,8 @@ node bin/cli.js prompt.txt -o json
 ### 4. Self-Host / Vercel Deploy
 
 ```bash
-git clone https://github.com/salimassili62-afk/ai-security-copilot.git
-cd ai-security-copilot
+git clone https://github.com/salimassili62-afk/ai-agent-security-copilot.git
+cd ai-agent-security-copilot
 npm install
 
 # Optional: Add Groq API key for AI enhancement
