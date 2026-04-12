@@ -1612,6 +1612,9 @@ Schema:
           time: Date.now(),
           triage: result.triage.action,
           soc: result.soc_note,
+          requestId,
+          content: content.substring(0, 100)
+        }, { content, context: scanContext, result });
       } catch (err) {
         const scanDuration = scanStartTime ? ((Date.now() - scanStartTime) / 1000).toFixed(1) : "0";
         const message = err instanceof Error ? err.message : "Unknown scan error.";
