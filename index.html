@@ -508,7 +508,7 @@
     </div>
 
     <div class="card">
-      <label>OWASP LLM Top 10 mapping (2025)</label>
+      <label>OWASP LLM Top 10 mapping (2025) <span style="background: var(--ok); color: white; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin-left: 8px;">Last updated: April 2026</span></label>
       <p class="small" id="owaspHint">Surface-level map from this paste to the categories that plausibly apply.</p>
       <div id="owaspRow" class="chip-row"></div>
     </div>
@@ -746,9 +746,10 @@ Schema:
       authStatus.innerHTML = '';
       loginBtn.style.display = 'inline-block';
       logoutBtn.style.display = 'none';
+      updateStorageIndicator(false);
     }
 
-    function showLoggedInMode() {
+    async function showLoggedInMode() {
       const guestBadge = document.getElementById('guestBadge');
       if (guestBadge) guestBadge.style.display = 'none';
       const avatar = currentUser?.user_metadata?.avatar_url || '';
@@ -756,6 +757,52 @@ Schema:
       authStatus.innerHTML = `<span class="user-info"><img src="${avatar}" alt="" onerror="this.style.display='none'" /> ${name}</span>`;
       loginBtn.style.display = 'none';
       logoutBtn.style.display = 'inline-block';
+      updateStorageIndicator(true);
+      // Migrate localStorage scans to cloud
+      await migrateLocalStorageToCloud();
+    }
+
+    async function migrateLocalStorageToCloud() {
+      const localScans = JSON.parse(localStorage.getItem('riskHistory') || '[]');
+      if (localScans.length === 0) return;
+      
+      let migrated = 0;
+      for (const scan of localScans) {
+        try {
+          await fetch("/api/scans", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${accessToken}`
+            },
+            body: JSON.stringify({
+              content: scan.content || "Migrated from localStorage",
+              scanContext: "migrated-scan",
+              result_label: scan.label || "LOW RISK",
+              result_score: scan.score || 0,
+              result_summary: "Migrated from localStorage"
+            })
+          });
+          migrated++;
+        } catch (e) {
+          console.error('Failed to migrate scan:', e);
+        }
+      }
+      
+      if (migrated > 0) {
+        localStorage.removeItem('riskHistory');
+        showToast(`${migrated} scans migrated to cloud ✓`);
+        loadCloudHistory();
+      }
+    }
+
+    function updateStorageIndicator(isCloud) {
+      const storageIndicator = document.getElementById('storageIndicator');
+      if (storageIndicator) {
+        storageIndicator.innerHTML = isCloud 
+          ? '<span style="color: var(--ok);">☁️ Synced to cloud ✓</span>'
+          : '<span style="color: var(--muted);">💾 Saved in your browser via localStorage</span>';
+      }
     }
 
     async function startGitHubLogin() {
@@ -831,7 +878,7 @@ Schema:
       if (heuristicOnly) modeText = " · Deterministic-only mode";
       else if (fallback) modeText = " · AI + Rules (fallback)";
       else modeText = " · AI + Rules mode";
-      buildMeta.textContent = `AI Security Copilot v${APP_VERSION}${modeText}`;
+      buildMeta.innerHTML = `AI Security Copilot v${APP_VERSION}${modeText} · Last updated: April 2026 · Built by <a href="https://github.com/salimassili62-afk" target="_blank" style="color: var(--primary);">@salimassili62</a>`;
     }
 
     // Check URL for shared results
@@ -1303,13 +1350,40 @@ Schema:
       }
     }
 
-    function saveHistory(item) {
-      try {
-        const list = JSON.parse(localStorage.getItem("riskHistory") || "[]");
-        list.unshift(item);
-        localStorage.setItem("riskHistory", JSON.stringify(list.slice(0, 8)));
-      } catch (_) {
-        /* quota or privacy mode */
+    async function saveHistory(item, fullScanData = null) {
+      // If user is authenticated, save to Supabase
+      if (currentUser && accessToken) {
+        try {
+          const res = await fetch("/api/scans", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${accessToken}`
+            },
+            body: JSON.stringify({
+              content: fullScanData?.content?.substring(0, 500) || item.content,
+              scanContext: fullScanData?.context || "security-scan",
+              result_label: item.label,
+              result_score: item.score,
+              result_summary: fullScanData?.result?.summary || ""
+            })
+          });
+          const data = await res.json();
+          if (data.ok) {
+            showToast('Scan saved to cloud ✓');
+          }
+        } catch (e) {
+          console.error('Failed to save scan to cloud:', e);
+        }
+      } else {
+        // Not authenticated - save to localStorage
+        try {
+          const list = JSON.parse(localStorage.getItem("riskHistory") || "[]");
+          list.unshift(item);
+          localStorage.setItem("riskHistory", JSON.stringify(list.slice(0, 8)));
+        } catch (_) {
+          /* quota or privacy mode */
+        }
       }
     }
 
@@ -1532,34 +1606,39 @@ Schema:
           compareMode,
           version
         };
-        saveHistory({
+        await saveHistory({
           score: result.score,
           label: labelToRender.text,
           time: Date.now(),
           triage: result.triage.action,
           soc: result.soc_note,
-          requestId
-        });
-        loadHistory();
       } catch (err) {
         const scanDuration = scanStartTime ? ((Date.now() - scanStartTime) / 1000).toFixed(1) : "0";
         const message = err instanceof Error ? err.message : "Unknown scan error.";
         let userMessage = message;
+        let isRateLimit = false;
         
         // Human-readable error messages
         if (message.includes("GROQ_API_KEY")) {
           userMessage = "API key not configured. Please add GROQ_API_KEY to environment variables and redeploy.";
-        } else if (message.includes("429") || message.includes("Too many")) {
-          userMessage = "Rate limit reached. Maximum 60 scans per 15 minutes. Please wait a few minutes.";
+        } else if (message.includes("429") || message.includes("Too many") || message.includes("Rate limit")) {
+          userMessage = "Rate limit reached (60 scans/15min). Upgrade to Pro for unlimited scans.";
+          isRateLimit = true;
         } else if (message.includes("500") || message.includes("502") || message.includes("503")) {
-          userMessage = "Server error. The Groq API may be temporarily unavailable. Please try again in a moment.";
+          userMessage = "Server error — our team has been notified. Please try again in a moment.";
         } else if (message.includes("network") || message.includes("fetch") || message.includes("Failed")) {
-          userMessage = "Network error. Check your internet connection and try again.";
+          userMessage = "Scan failed — check your connection and try again.";
         }
         
         riskBadge.className = "pill risk-med";
         riskBadge.textContent = "SCAN ERROR";
-        scoreReason.textContent = `Scan failed (${scanDuration}s): ${userMessage}`;
+        
+        // Show rate limit banner with upgrade link
+        if (isRateLimit) {
+          scoreReason.innerHTML = `<span style="color: var(--danger);">⚠️ ${userMessage}</span> <a href="/pricing.html" style="color: var(--primary); text-decoration: underline;">Upgrade to Pro →</a>`;
+        } else {
+          scoreReason.textContent = `Scan failed (${scanDuration}s): ${userMessage}`;
+        }
         resetTriageUi();
         renderHeuristicSignals(content);
         owaspRow.textContent = "";
