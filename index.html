@@ -554,13 +554,13 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
+    // Initialize Supabase client first, before any other code that uses it
+    const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQzOX0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
     // Wait for DOM to be ready before accessing DOM elements
     document.addEventListener('DOMContentLoaded', function() {
-      // Initialize Supabase client first, before any other code that uses it
-      const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
-      const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQzOX0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
-      const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-      
       const APP_VERSION = "2.0.0";
     const CLAUDE_MODEL = "groq-llama-3.1-8b";
     const SECURITY_SYSTEM_PROMPT = `You are an AI security analyst for teams shipping LLM products and autonomous agents.
@@ -1704,28 +1704,10 @@ Schema:
       lastScanBundle = null;
     });
 
-    // Landing/Scanner view switching
-    function showScanner() {
-      document.getElementById('landingHero').classList.add('hidden');
-      document.getElementById('scannerSection').classList.add('active');
-      window.scrollTo(0, 0);
-    }
-    
-    function showLanding() {
-      document.getElementById('landingHero').classList.remove('hidden');
-      document.getElementById('scannerSection').classList.remove('active');
-      window.scrollTo(0, 0);
-    }
-    
     // Check URL params for OAuth errors
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('error') === 'oauth_not_configured') {
       alert('GitHub OAuth is not configured. Please contact the administrator.');
-    }
-    
-    // Check URL params for direct scanner access
-    if (window.location.search.includes('scanner') || window.location.search.includes('signup')) {
-      showScanner();
     }
 
     renderList(reasonsList, [], "No scan yet.");
@@ -1734,6 +1716,26 @@ Schema:
     resetTriageUi();
     loadHistory();
     }); // Close DOMContentLoaded event listener
+
+    // Landing/Scanner view switching - MUST be in global scope for onclick
+    function showScanner() {
+      document.getElementById('landingHero').classList.add('hidden');
+      document.getElementById('scannerSection').classList.add('active');
+      window.scrollTo(0, 0);
+    }
+
+    function showLanding() {
+      document.getElementById('landingHero').classList.remove('hidden');
+      document.getElementById('scannerSection').classList.remove('active');
+      window.scrollTo(0, 0);
+    }
+
+    // Check URL params for direct scanner access (after DOMContentLoaded)
+    document.addEventListener('DOMContentLoaded', function() {
+      if (window.location.search.includes('scanner') || window.location.search.includes('signup')) {
+        showScanner();
+      }
+    });
   </script>
 </body>
 </html>
