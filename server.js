@@ -8,6 +8,11 @@ const cors = require("cors");
 const path = require("path");
 const cookieParser = require("cookie-parser");
 
+// Import new engine modules
+const { AutoFixEngine } = require('./engine/remediator');
+const { ContextAwareEngine } = require('./engine/context-aware');
+const { PreprocessingEngine } = require('./engine/preprocessing');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_VERSION = "2.3.0";
@@ -61,6 +66,11 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
     console.log('[INIT] Supabase not available:', e.message);
   }
 }
+
+// Initialize new engines
+const autoFixEngine = new AutoFixEngine(process.env.GROQ_API_KEY);
+const contextEngine = new ContextAwareEngine();
+const preprocessingEngine = new PreprocessingEngine();
 
 // Request cache for identical scans
 const scanCache = new Map();
@@ -1227,8 +1237,23 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
 
     const groqApiKey = process.env.GROQ_API_KEY;
     
+    // NEW: Context-aware analysis
+    const context = contextEngine.analyzeContext(content, {
+      sensitivity_tier: req.body.sensitivity_tier,
+      scan_context: scanContext
+    });
+    
+    // NEW: Preprocessing for evasion detection
+    const preprocessOptions = {
+      skip_decoding: req.body.skip_decoding || process.env.OFFLINE_MODE === 'true'
+    };
+    const preprocessed = await preprocessingEngine.preprocess(content, preprocessOptions);
+    
+    // Use preprocessed content for scanning
+    const contentToScan = preprocessed.processed;
+    
     // Check cache first
-    const cacheKey = getCacheKey(content, scanContext, compareBaseline);
+    const cacheKey = getCacheKey(contentToScan, scanContext, compareBaseline, context.tier);
     const cached = scanCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp < SCAN_CACHE_MS)) {
       log('INFO', 'Cache hit', { requestId, cacheKey: cacheKey.slice(0, 8) });
@@ -1250,11 +1275,11 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
     
     let scanResult;
     
-    if (groqApiKey) {
-      scanResult = await performScan(content, scanContext, compareBaseline, groqApiKey);
+    if (groqApiKey && !process.env.OFFLINE_MODE) {
+      scanResult = await performScan(contentToScan, scanContext, compareBaseline, groqApiKey);
     } else {
-      // No API key - use heuristic only
-      const heuristic = runHeuristicScan(content);
+      // No API key or offline mode - use heuristic only
+      const heuristic = runHeuristicScan(contentToScan);
       scanResult = {
         outputText: JSON.stringify(heuristic),
         parsed: { ...heuristic, heuristicOnly: true },
@@ -1263,6 +1288,53 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
         heuristicOnly: true
       };
     }
+    
+    // NEW: Apply context-aware adjustments
+    if (scanResult.parsed.deterministicFindings) {
+      scanResult.parsed.deterministicFindings = contextEngine.adjustDetection(
+        scanResult.parsed.deterministicFindings,
+        context
+      );
+    }
+    
+    // NEW: Generate auto-fixes for vulnerabilities
+    if (scanResult.parsed.deterministicFindings && scanResult.parsed.deterministicFindings.length > 0) {
+      const criticalFindings = scanResult.parsed.deterministicFindings.filter(f => 
+        f.severity === 'CRITICAL' || f.severity === 'HIGH'
+      );
+      
+      if (criticalFindings.length > 0) {
+        try {
+          const autoFixes = [];
+          for (const finding of criticalFindings.slice(0, 3)) { // Limit to top 3
+            const fix = await autoFixEngine.generateFix(finding, content, {
+              airgap: process.env.OFFLINE_MODE === 'true',
+              context: context
+            });
+            autoFixes.push({
+              ...finding,
+              auto_fix: fix,
+              exploit_simulation: await autoFixEngine.generateExploitSimulation(finding, content)
+            });
+          }
+          scanResult.parsed.auto_fixes = autoFixes;
+          scanResult.parsed.auto_fix_available = true;
+        } catch (e) {
+          log('WARN', 'Auto-fix generation failed', { error: e.message });
+          scanResult.parsed.auto_fix_available = false;
+        }
+      }
+    }
+    
+    // NEW: Add preprocessing metadata
+    scanResult.parsed.preprocessing = {
+      obfuscation_detected: preprocessed.obfuscation_detected,
+      transformations: preprocessed.transformations,
+      suspicion_level: preprocessed.metadata.suspicion_level || 'LOW'
+    };
+    
+    // NEW: Add context metadata
+    scanResult.parsed.context = context;
     
     // Cache result
     scanCache.set(cacheKey, { result: scanResult, timestamp: Date.now() });
@@ -1303,7 +1375,11 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
       fallback: scanResult.fallback || false,
       heuristicOnly: scanResult.heuristicOnly || false,
       requestId,
-      version: APP_VERSION
+      version: APP_VERSION,
+      // NEW: Additional fields for Pro features
+      context_tier: context.tier,
+      obfuscation_detected: preprocessed.obfuscation_detected,
+      auto_fix_available: scanResult.parsed.auto_fix_available || false
     });
     
   } catch (error) {

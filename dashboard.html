@@ -4,11 +4,12 @@
   <title>Dashboard - AI Security Copilot</title>
   <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script>
-    // Initialize Supabase client
-    const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQzOX0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  </script>
+    // Wait for DOM to be ready before accessing DOM elements
+    document.addEventListener('DOMContentLoaded', function() {
+      // Initialize Supabase client first, before any other code that uses it
+      const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
+      const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQzOX0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
+      const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui; background: #0f1419; color: #e1e8ed; }
@@ -121,7 +122,7 @@
 
     // Generate new API key with auth
     async function generateKey() {
-      const token = getAuthToken();
+      const token = await getAuthToken();
       if (!token) {
         showToast('Please sign in to generate API keys');
         return;
@@ -202,7 +203,7 @@
 
     // Load existing API keys with auth
     async function loadApiKeys() {
-      const token = getAuthToken();
+      const token = await getAuthToken();
       if (!token) return;
       
       try {
@@ -263,7 +264,7 @@
 
     // Load dashboard data with auth token
     async function loadDashboardData() {
-      const token = getAuthToken();
+      const token = await getAuthToken();
       const authWarning = document.getElementById('auth-warning');
       
       try {
@@ -400,7 +401,7 @@
 
     // Load recent scans with auth (fallback if updateRecentScans wasn't called)
     async function loadRecentScans() {
-      const token = getAuthToken();
+      const token = await getAuthToken();
       if (!token) {
         // Show sign-in message if no token
         const scansContainer = document.getElementById('recent-scans');

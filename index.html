@@ -5,12 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Agent Security Copilot</title>
   <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-  <script>
-    // Initialize Supabase client
-    const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQzOX0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  </script>
   <style>
     :root {
       --bg: #0b1220;
@@ -560,7 +554,14 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
-    const APP_VERSION = "2.0.0";
+    // Wait for DOM to be ready before accessing DOM elements
+    document.addEventListener('DOMContentLoaded', function() {
+      // Initialize Supabase client first, before any other code that uses it
+      const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
+      const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQzOX0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
+      const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      
+      const APP_VERSION = "2.0.0";
     const CLAUDE_MODEL = "groq-llama-3.1-8b";
     const SECURITY_SYSTEM_PROMPT = `You are an AI security analyst for teams shipping LLM products and autonomous agents.
 
@@ -806,7 +807,7 @@ Schema:
     }
 
     async function startGitHubLogin() {
-      window.location.href = 'https://khysogghgvhoqymsgncr.supabase.co/auth/v1/authorize?provider=github&redirect_to=https://ai-agent-security-copilot.vercel.app/dashboard';
+      window.location.href = 'https://khysogghgvhoqymsgncr.supabase.co/auth/v1/authorize?provider=github&redirect_to=https://ai-agent-security-copilot.vercel.app/auth/callback';
     }
 
     async function logout() {
@@ -1732,6 +1733,7 @@ Schema:
     renderList(redTeamList, [], "No scan yet.");
     resetTriageUi();
     loadHistory();
+    }); // Close DOMContentLoaded event listener
   </script>
 </body>
 </html>

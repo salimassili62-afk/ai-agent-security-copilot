@@ -1,9 +1,14 @@
 const fs = require('fs');
 const https = require('https');
+const path = require('path');
+
+// Import PR Blocker engine
+const { PRBlockerEngine } = require('../engine/pr-blocker');
 
 const API_URL = process.env.AI_SECURITY_API_URL || 'https://ai-agent-security-copilot.vercel.app/api/scan';
+const prBlocker = new PRBlockerEngine();
 
-async function scanFile(filePath, apiKey) {
+async function scanFile(filePath, apiKey, options = {}) {
   const content = fs.readFileSync(filePath, 'utf8');
   
   // Skip binary files
@@ -13,9 +18,10 @@ async function scanFile(filePath, apiKey) {
 
   return new Promise((resolve, reject) => {
     const postData = JSON.stringify({
-      input: content,
-      format: 'json',
-      filename: filePath.split('/').pop()
+      content: content,
+      scanContext: options.scanContext || 'github-action',
+      sensitivity_tier: options.sensitivity_tier || process.env.SENSITIVITY_TIER || 'MEDIUM',
+      skip_decoding: options.skip_decoding || process.env.OFFLINE_MODE === 'true'
     });
 
     const url = new URL(API_URL);
@@ -47,14 +53,20 @@ async function scanFile(filePath, apiKey) {
           if (res.statusCode >= 200 && res.statusCode < 300) {
             const result = JSON.parse(data);
             resolve({
-              findings: result.parsed?.reasons?.map(r => ({
-                pattern: r,
-                severity: result.parsed?.label || 'MEDIUM',
-                category: 'SECURITY',
-                description: result.parsed?.summary || ''
+              findings: result.parsed?.deterministicFindings?.map(f => ({
+                pattern: f.pattern || f.name,
+                severity: f.severity,
+                category: f.category || 'SECURITY',
+                description: f.description || f.reason || '',
+                score_impact: f.score_impact || 0
               })) || [],
               score: result.parsed?.score || 0,
-              label: result.parsed?.label || 'LOW'
+              label: result.parsed?.label || 'LOW',
+              // NEW: Return full result for PR blocking
+              full_result: result,
+              auto_fixes: result.parsed?.auto_fixes || [],
+              context_tier: result.context_tier,
+              obfuscation_detected: result.obfuscation_detected || false
             });
           } else if (res.statusCode === 401) {
             reject(new Error('Invalid API key. Please check your API key at https://ai-agent-security-copilot.vercel.app'));
@@ -128,4 +140,32 @@ function isBinary(content) {
   return false;
 }
 
-module.exports = { scanFile, localScan };
+// NEW: PR comparison function
+async function compareWithBaseline(baselineFile, candidateFile, apiKey, options = {}) {
+  const [baselineScan, candidateScan] = await Promise.all([
+    scanFile(baselineFile, apiKey, options),
+    scanFile(candidateFile, apiKey, options)
+  ]);
+  
+  const prConfig = {
+    fail_on_increase: process.env.FAIL_ON_INCREASE !== 'false',
+    max_risk_score: parseInt(process.env.MAX_RISK_SCORE) || 70,
+    min_score_delta: parseInt(process.env.MIN_SCORE_DELTA) || -10,
+    block_new_critical: process.env.BLOCK_NEW_CRITICAL !== 'false',
+    block_new_high: process.env.BLOCK_NEW_HIGH === 'true'
+  };
+  
+  const evaluation = await prBlocker.evaluatePR(
+    { parsed: baselineScan.full_result?.parsed || baselineScan },
+    { parsed: candidateScan.full_result?.parsed || candidateScan },
+    prConfig
+  );
+  
+  return {
+    baseline: baselineScan,
+    candidate: candidateScan,
+    evaluation: evaluation
+  };
+}
+
+module.exports = { scanFile, localScan, compareWithBaseline };

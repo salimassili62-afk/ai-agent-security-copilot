@@ -24,7 +24,7 @@ function getRequestModule(url) {
 
 function showHelp() {
   console.log(`
-AI Security Copilot CLI v2.0.0
+AI Security Copilot CLI v2.3.0
 
 Usage:
   ai-security-scan [options] <file>
@@ -33,17 +33,26 @@ Usage:
 Options:
   -h, --help              Show help
   -c, --compare <file>    Compare mode (provide baseline and candidate)
-  -o, --output <format>   Output format: json, markdown, summary (default: summary)
+  -o, --output <format>   Output format: json, markdown, summary, sarif (default: summary)
   --fail-on <level>       Exit with error if risk >= level (low/medium/high)
+  --apply-fix             Apply auto-fix and save to file
+  --show-hardened         Show hardened prompts in output
+  --sensitivity <tier>    Sensitivity tier: LOW, MEDIUM, HIGH (default: MEDIUM)
+  --airgap                Offline mode (deterministic only)
+  --format <type>         Output format alias for -o
 
 Environment:
   AI_SECURITY_API         API endpoint (default: http://localhost:3000)
   GROQ_API_KEY            Optional: for direct API access
+  OFFLINE_MODE            Force offline scanning
+  SENSITIVITY_TIER        Default sensitivity tier
 
 Examples:
   ai-security-scan prompt.txt
   ai-security-scan --compare baseline.txt new-version.txt
+  ai-security-scan --apply-fix --show-hardened prompt.txt
   echo "Ignore previous instructions" | ai-security-scan --fail-on medium
+  ai-security-scan --format sarif --output report.json prompt.txt
 `);
 }
 
@@ -84,60 +93,129 @@ function formatSummary(result) {
   const r = result.parsed || result;
   const riskLevel = r.score >= 75 ? 'HIGH' : r.score >= 40 ? 'MEDIUM' : 'LOW';
   const riskIcon = r.score >= 75 ? '🔴' : r.score >= 40 ? '🟡' : '🟢';
-  return `
+  
+  let output = `
 ╔════════════════════════════════════════════════════════╗
 ║  AI SECURITY SCAN RESULT                               ║
 ╠════════════════════════════════════════════════════════╣
   ${riskIcon} Risk Level: ${riskLevel} (${r.score}/100)
-  🛡️  Triage:    ${r.triage?.action || 'REVIEW'} — ${r.triage?.rationale || 'Review findings'}
+  🛡️  Triage:    ${r.triage?.action || 'REVIEW'} — ${r.triage?.rationale || 'Review findings'}`;
   
-  Summary:
-  ${r.summary || 'No significant security patterns detected.'}
+  // NEW: Add context tier
+  if (r.context?.tier) {
+    output += `\n  📊 Context:   ${r.context.tier} (${r.context.tier_name})`;
+  }
   
-  ${r.reasons?.length ? 'Findings:\n  • ' + r.reasons.join('\n  • ') : '✓ No significant issues found.'}
+  output += `\n\n  Summary:\n  ${r.summary || 'No significant security patterns detected.'}\n`;
   
-  ${r.owasp?.length ? 'OWASP Categories: ' + r.owasp.map(o => o.id).join(', ') : ''}
-╚════════════════════════════════════════════════════════╝
-`;
+  // NEW: Add obfuscation warning
+  if (r.preprocessing?.obfuscation_detected) {
+    output += `\n  ⚠️  Obfuscation detected: ${r.preprocessing.transformations.length} transformations`;
+  }
+  
+  if (r.reasons?.length) {
+    output += `\n\n  Findings:\n  • ${r.reasons.join('\n  • ')}`;
+  } else {
+    output += `\n\n  ✓ No significant issues found.`;
+  }
+  
+  // NEW: Add auto-fix hint
+  if (r.auto_fix_available) {
+    output += `\n\n  🔧 Auto-fixes available (use --apply-fix or --show-hardened)`;
+  }
+  
+  if (r.owasp?.length) {
+    output += `\n\n  OWASP Categories: ${r.owasp.map(o => o.id).join(', ')}`;
+  }
+  
+  output += `\n╚════════════════════════════════════════════════════════╝`;
+  
+  return output;
 }
 
 function formatMarkdown(result, fileName) {
   const r = result.parsed || result;
-  return `# Security Scan: ${fileName}
+  let output = `# Security Scan: ${fileName}
 
 **Score:** ${r.score}/100 (${r.label})  
 **Triage:** ${r.triage?.action || 'REVIEW'}  
-**Confidence:** ${r.confidence}
-
-## Summary
-${r.summary}
-
-${r.reasons?.length ? `## Findings
-${r.reasons.map(x => `- ${x}`).join('\n')}
-` : ''}
-
-${r.fixes?.length ? `## Recommendations
-${r.fixes.map(x => `- ${x}`).join('\n')}
-` : ''}
-
-${r.owasp?.length ? `## OWASP LLM Top 10 Mapping
-${r.owasp.map(o => `- **${o.id}:** ${o.title} (${o.severity})`).join('\n')}
-` : ''}
-
----
-*Scanned with AI Security Copilot v${result.version || '2.0.0'}*
-`;
+**Confidence:** ${r.confidence}`;
+  
+  // NEW: Add context tier info
+  if (r.context?.tier) {
+    output += `  
+**Sensitivity Tier:** ${r.context.tier} (${r.context.tier_name})`;
+  }
+  
+  output += `\n\n## Summary\n${r.summary}\n\n`;
+  
+  // NEW: Add obfuscation warning
+  if (r.preprocessing?.obfuscation_detected) {
+    output += `⚠️ **Obfuscation Detected:** ${r.preprocessing.transformations.length} transformations applied\n\n`;
+  }
+  
+  if (r.reasons?.length) {
+    output += `## Findings\n${r.reasons.map(x => `- ${x}`).join('\n')}\n\n`;
+  }
+  
+  // NEW: Add auto-fix section
+  if (r.auto_fixes && r.auto_fixes.length > 0) {
+    output += `## 🔧 Suggested Fixes\n\n`;
+    r.auto_fixes.forEach((fix, index) => {
+      output += `### Fix ${index + 1}: ${fix.name}\n\n`;
+      output += `**Explanation:** ${fix.auto_fix?.explanation}\n\n`;
+      
+      if (fix.auto_fix?.hardened_prompt) {
+        output += `<details>\n<summary>🔒 View Hardened Prompt</summary>\n\n\`\`\`\n${fix.auto_fix.hardened_prompt}\n\`\`\`\n\n</details>\n\n`;
+      }
+    });
+  }
+  
+  if (r.fixes?.length) {
+    output += `## Recommendations\n${r.fixes.map(x => `- ${x}`).join('\n')}\n\n`;
+  }
+  
+  if (r.owasp?.length) {
+    output += `## OWASP LLM Top 10 Mapping\n${r.owasp.map(o => `- **${o.id}:** ${o.title} (${o.severity})`).join('\n')}\n\n`;
+  }
+  
+  output += `---\n*Scanned with AI Security Copilot v${result.version || '2.3.0'}*`;
+  
+  return output;
 }
 
 async function scanFile(filePath, options = {}) {
   const content = fs.readFileSync(filePath, 'utf-8');
   
+  const requestBody = {
+    content,
+    scanContext: options.context || 'CLI scan',
+    sensitivity_tier: options.sensitivityTier || process.env.SENSITIVITY_TIER || 'MEDIUM'
+  };
+  
+  if (options.airgap || process.env.OFFLINE_MODE === 'true') {
+    requestBody.skip_decoding = true;
+  }
+  
   const result = await request('/api/scans', {
-    body: { content, scanContext: options.context || 'CLI scan' }
+    body: requestBody
   });
   
   if (!result.ok) {
     throw new Error(result.error || 'Scan failed');
+  }
+  
+  // NEW: Handle auto-fix application
+  if (options.applyFix && result.parsed?.auto_fixes?.length > 0) {
+    const fix = result.parsed.auto_fixes[0]; // Use first fix
+    const hardenedContent = fix.auto_fix?.hardened_prompt;
+    
+    if (hardenedContent) {
+      const outputPath = options.outputFile || filePath.replace(/\.[^.]+$/, '_hardened.txt');
+      fs.writeFileSync(outputPath, hardenedContent);
+      console.log(`\n✅ Hardened prompt saved to: ${outputPath}`);
+      result.hardened_file = outputPath;
+    }
   }
   
   return result;
@@ -203,7 +281,12 @@ async function main() {
   const options = {
     output: 'summary',
     failOn: null,
-    context: null
+    context: null,
+    applyFix: false,
+    showHardened: false,
+    sensitivityTier: null,
+    airgap: false,
+    outputFile: null
   };
   
   let files = [];
@@ -213,10 +296,20 @@ async function main() {
     
     if (arg === '-o' || arg === '--output') {
       options.output = args[++i];
+    } else if (arg === '--format') {
+      options.output = args[++i]; // Alias for --output
     } else if (arg === '--fail-on') {
       options.failOn = args[++i];
     } else if (arg === '-c' || arg === '--compare') {
       options.compare = true;
+    } else if (arg === '--apply-fix') {
+      options.applyFix = true;
+    } else if (arg === '--show-hardened') {
+      options.showHardened = true;
+    } else if (arg === '--sensitivity') {
+      options.sensitivityTier = args[++i]?.toUpperCase();
+    } else if (arg === '--airgap') {
+      options.airgap = true;
     } else if (!arg.startsWith('-')) {
       files.push(arg);
     }
