@@ -557,7 +557,7 @@
     // Initialize Supabase client first, before any other code that uses it
     const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQzOX0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // Wait for DOM to be ready before accessing DOM elements
     document.addEventListener('DOMContentLoaded', function() {
