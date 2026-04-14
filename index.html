@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Agent Security Copilot</title>
-  <!-- Supabase removed - app now works without auth -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>
     :root {
       --bg: #0b1220;
@@ -433,7 +433,7 @@
     <div class="wrap">
       <a href="#" class="back-to-landing" onclick="showLanding(); return false;">← Back to landing page</a>
       <div class="auth-bar">
-        <span class="trust-signal" style="color: var(--ok); font-size: 13px; font-weight: 600;">✓ No login required</span>
+        <span id="authStatus"></span>
         <span style="color: var(--muted); font-size: 13px;">·</span>
         <span class="trust-signal" style="color: var(--ok); font-size: 13px; font-weight: 600;">⚡ Runs in &lt;2 seconds</span>
         <a href="pricing.html" class="btn-ghost" style="margin-left: auto; text-decoration: none; display: inline-block; padding: 6px 12px; font-size: 13px;">Pricing</a>
@@ -617,7 +617,10 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
-    // App now works without auth - Supabase removed
+    // Initialize Supabase
+    const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQ0MH0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // Wait for DOM to be ready before accessing DOM elements
     document.addEventListener('DOMContentLoaded', function() {
@@ -683,6 +686,7 @@ Schema:
     const helpBtn = document.getElementById("helpBtn");
     const closeHelpBtn = document.getElementById("closeHelpBtn");
     const buildMeta = document.getElementById("buildMeta");
+    const authStatus = document.getElementById("authStatus");
 
     const MAX_INPUT_CHARS = 10000;
     let lastScanBundle = null;
@@ -694,7 +698,22 @@ Schema:
     let lastScanTime = 0;
     const SCAN_DEBOUNCE_MS = 1000; // 1 second debounce between scans
 
-    // Auth removed - app works without login
+    // Check auth status and update UI
+    async function checkAuth() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const { data: { user } } = await supabase.auth.getUser();
+          authStatus.innerHTML = `<a href="/dashboard" class="btn-ghost" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Dashboard</a> <a href="/auth/logout" class="btn-ghost" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Sign Out</a>`;
+        } else {
+          authStatus.innerHTML = `<a href="/auth/login" class="btn-primary" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Sign In</a>`;
+        }
+      } catch (e) {
+        authStatus.innerHTML = `<a href="/auth/login" class="btn-primary" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Sign In</a>`;
+      }
+    }
+    
+    checkAuth();
 
     // Update footer with accurate info based on scan mode
     function updateFooter(provider, fallback, heuristicOnly) {
