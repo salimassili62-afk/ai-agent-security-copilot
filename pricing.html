@@ -185,12 +185,6 @@
     
     async function startCheckout(plan) {
       try {
-        // Get variant ID based on plan
-        const variantId = plan === 'professional' 
-          ? (process.env.LEMONSQUEEZY_VARIANT_PRO || 'variant_pro_placeholder')
-          : (process.env.LEMONSQUEEZY_VARIANT_ENTERPRISE || 'variant_enterprise_placeholder');
-        
-        // Get user email (you might want to collect this or get from auth)
         const email = prompt('Please enter your email address for the checkout:');
         if (!email) {
           return;
@@ -199,13 +193,23 @@
         const res = await fetch('/api/create-checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ variantId, email })
+          body: JSON.stringify({ plan, email })
         });
         
         const data = await res.json();
         
         if (data.error === "payments_not_configured") {
           showMessage('Payment system coming soon. Please try again later.', 'info');
+          return;
+        }
+
+        if (data.error === "invalid_email") {
+          showMessage('Please enter a valid email address.', 'error');
+          return;
+        }
+
+        if (data.error === "invalid_plan") {
+          showMessage('This plan is not available for checkout yet.', 'error');
           return;
         }
         

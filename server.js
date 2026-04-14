@@ -30,30 +30,14 @@ const SCAN_CACHE_MS = 60000;
 // ====== GITHUB OAUTH CONFIGURATION ======
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
-const GITHUB_REDIRECT_URI = 'https://ai-agent-security-copilot.vercel.app/auth/callback';
-
-// Auth status helper
-function getAuthStatus(req) {
-  try {
-    // Check Authorization header first (for API calls)
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
-      // For Supabase JWT tokens, we could validate here, but for now just return token presence
-      return { token, source: 'header' };
-    }
-    
-    // Check session cookie (for browser navigation)
-    const sessionCookie = req.cookies?.auth_session;
-    if (sessionCookie) {
-      return JSON.parse(Buffer.from(sessionCookie, 'base64').toString());
-    }
-    
-    return null;
-  } catch {
-    return null;
-  }
-}
+const GITHUB_REDIRECT_URI = process.env.GITHUB_REDIRECT_URI || null;
+const SESSION_COOKIE_NAME = "auth_session";
+const SESSION_SECRET =
+  process.env.SESSION_SECRET ||
+  process.env.JWT_SECRET ||
+  process.env.SUPABASE_JWT_SECRET ||
+  GITHUB_CLIENT_SECRET ||
+  "local-dev-session-secret";
 
 // Optional Supabase
 let supabase = null;
@@ -84,6 +68,93 @@ function log(level, message, meta = {}) {
   console.log(`[${timestamp}] [${level}] ${message}`, Object.keys(meta).length ? JSON.stringify(meta) : '');
 }
 
+function getRequestOrigin(req) {
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const forwardedHost = req.headers["x-forwarded-host"];
+  const proto = typeof forwardedProto === "string" && forwardedProto.length
+    ? forwardedProto.split(",")[0].trim()
+    : (req.protocol || "http");
+  const host = typeof forwardedHost === "string" && forwardedHost.length
+    ? forwardedHost.split(",")[0].trim()
+    : req.get("host");
+  return `${proto}://${host}`;
+}
+
+function getGithubRedirectUri(req) {
+  return GITHUB_REDIRECT_URI || `${getRequestOrigin(req)}/auth/callback`;
+}
+
+function isSecureRequest(req) {
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  if (typeof forwardedProto === "string") {
+    return forwardedProto.split(",")[0].trim() === "https";
+  }
+  return Boolean(req.secure);
+}
+
+function signSessionPayload(payload) {
+  return crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("hex");
+}
+
+function encodeSessionCookie(session) {
+  const payload = Buffer.from(JSON.stringify(session), "utf8").toString("base64url");
+  return `${payload}.${signSessionPayload(payload)}`;
+}
+
+function decodeSessionCookie(cookieValue) {
+  try {
+    if (!cookieValue || typeof cookieValue !== "string") return null;
+    const [payload, signature] = cookieValue.split(".");
+    if (!payload || !signature) return null;
+
+    const expectedSignature = signSessionPayload(payload);
+    const received = Buffer.from(signature, "utf8");
+    const expected = Buffer.from(expectedSignature, "utf8");
+
+    if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) {
+      return null;
+    }
+
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeUserFields(user = {}) {
+  return {
+    id: user.id,
+    login: user.login || user.user_name || user.preferred_username || user.username || null,
+    email: user.email || null,
+    avatar: user.avatar || user.avatar_url || null,
+    name: user.name || user.full_name || null
+  };
+}
+
+function getCanonicalScanScore(scan = {}) {
+  if (typeof scan.result_score === "number") return scan.result_score;
+  if (typeof scan.score === "number") return scan.score;
+  if (typeof scan.result?.score === "number") return scan.result.score;
+  if (typeof scan.result_score === "string" && scan.result_score.length) return Number(scan.result_score) || 0;
+  return 0;
+}
+
+function normalizeScanRecord(scan = {}) {
+  const score = getCanonicalScanScore(scan);
+  const label =
+    scan.result_label ||
+    scan.result?.label ||
+    (score >= 75 ? "HIGH" : score >= 40 ? "MEDIUM" : "LOW");
+
+  return {
+    ...scan,
+    result_score: score,
+    result_label: label,
+    result_summary: scan.result_summary || scan.result?.summary || "",
+    content: scan.content || scan.result?.content || null
+  };
+}
+
 // Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ 
@@ -92,7 +163,11 @@ app.use(cors({
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id']
 }));
-app.use(express.json({ limit: "1mb" }));
+app.use("/api/lemonsqueezy-webhook", express.raw({ type: "application/json" }));
+app.use(express.json({
+  limit: "1mb",
+  type: (req) => !req.path.startsWith("/api/lemonsqueezy-webhook")
+}));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, ".")));
 
@@ -120,6 +195,74 @@ function getClientIp(req) {
   }
 }
 
+async function getAuthStatus(req) {
+  if (req.authResolved) {
+    return req.auth || null;
+  }
+
+  req.authResolved = true;
+
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      if (!supabase) {
+        req.auth = null;
+        return null;
+      }
+
+      const token = authHeader.substring(7).trim();
+      if (!token) {
+        req.auth = null;
+        return null;
+      }
+
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      if (error || !user) {
+        req.auth = null;
+        return null;
+      }
+
+      const normalizedUser = normalizeUserFields({
+        id: user.id,
+        email: user.email,
+        login: user.user_metadata?.user_name || user.user_metadata?.preferred_username || user.user_metadata?.login,
+        avatar: user.user_metadata?.avatar_url,
+        name: user.user_metadata?.full_name || user.user_metadata?.name
+      });
+      const profile = await getUserProfile(normalizedUser);
+
+      req.auth = {
+        ...normalizedUser,
+        id: profile?.id || normalizedUser.id,
+        plan: profile?.plan || "free",
+        source: "header",
+        token
+      };
+      return req.auth;
+    }
+
+    const sessionCookie = decodeSessionCookie(req.cookies?.[SESSION_COOKIE_NAME]);
+    if (!sessionCookie) {
+      req.auth = null;
+      return null;
+    }
+
+    const normalizedSession = normalizeUserFields(sessionCookie);
+    const profile = await getUserProfile(normalizedSession);
+    req.auth = {
+      ...normalizedSession,
+      id: profile?.id || normalizedSession.id,
+      plan: profile?.plan || sessionCookie.plan || "free",
+      source: "cookie"
+    };
+    return req.auth;
+  } catch (error) {
+    log("WARN", "Auth resolution failed", { error: error.message });
+    req.auth = null;
+    return null;
+  }
+}
+
 function sanitizeInput(input, tier = 'free') {
   if (typeof input !== 'string') return '';
   const limits = {
@@ -131,8 +274,17 @@ function sanitizeInput(input, tier = 'free') {
   return input.replace(/\x00/g, '').slice(0, limit).trim();
 }
 
-function rateLimitScan(req, res, next) {
+async function rateLimitScan(req, res, next) {
   try {
+    const auth = await getAuthStatus(req);
+    const paidPlan = auth?.plan === "professional" || auth?.plan === "pro" || auth?.plan === "enterprise";
+    if (paidPlan) {
+      res.setHeader("X-RateLimit-Limit", "unlimited");
+      res.setHeader("X-RateLimit-Remaining", "unlimited");
+      res.setHeader("X-RateLimit-Reset-In", "0");
+      return next();
+    }
+
     const ip = getClientIp(req);
     const now = Date.now();
     let bucket = rateBuckets.get(ip);
@@ -641,9 +793,7 @@ function runHeuristicScan(content) {
     }
   }
   
-  // Ultra-conservative scoring to eliminate false positives
-  // Only the most obvious attacks should score high
-  // Normal prompts MUST score <15, clear attacks >85
+  // Severity-first scoring so deterministic results line up with product promises.
   let score = 0;
   
   // Only count the most severe direct instruction overrides
@@ -655,41 +805,33 @@ function runHeuristicScan(content) {
      f.type.includes("jailbreak"))
   );
   
-  // Other findings get minimal weight
+  // Other critical findings are still launch-blocking even when they are not direct overrides.
   const otherCritical = findings.filter(f => 
     f.severity === "CRITICAL" && !directOverrides.includes(f)
   );
   
-  // Very conservative scoring
-  score += directOverrides.length * 45;  // Only direct overrides get high score
-  score += otherCritical.length * 8;     // Other critical minimal
-  score += highCount * 3;                // High severity very low
-  score += mediumCount * 1;              // Medium severity minimal
+  score += directOverrides.length * 75;
+  score += otherCritical.length * 75;
+  score += highCount * 25;
+  score += mediumCount * 10;
+  score += encodingDetections * 5;
   
-  // Only add bonuses for multiple direct overrides
-  if (directOverrides.length >= 2) score += 15;
+  if (directOverrides.length >= 2) score += 10;
+  if (otherCritical.length >= 2) score += 10;
   
   // Cap at 100
   score = Math.min(100, score);
   
-  // Very conservative thresholds
-  // >= 85 = HIGH (only clear attacks)
-  // >= 25 = MEDIUM (suspicious but not attacks)
-  // < 25 = LOW (normal prompts)
-  const label = score >= 85 ? "HIGH" : score >= 25 ? "MEDIUM" : "LOW";
+  const label = score >= 75 ? "HIGH" : score >= 40 ? "MEDIUM" : "LOW";
   
   // Action based on ultra-conservative findings
   let action = "ALLOW";
   let rationale = "No significant findings";
   
-  // Only block for direct instruction overrides
-  if (directOverrides.length >= 1 || score >= 85) {
+  if (directOverrides.length >= 1 || otherCritical.length >= 1 || score >= 75) {
     action = "BLOCK";
-    rationale = `Direct instruction override detected (score: ${score})`;
-  } else if (score >= 50 || directOverrides.length >= 1) {
-    action = "REVIEW";
-    rationale = `Suspicious instruction pattern detected (score: ${score})`;
-  } else if (highCount >= 3 || otherCritical.length >= 2) {
+    rationale = `Critical security pattern detected (score: ${score})`;
+  } else if (score >= 40 || highCount >= 2) {
     action = "REVIEW";
     rationale = `Multiple concerning patterns detected (score: ${score})`;
   } else if (findings.length > 0) {
@@ -854,24 +996,23 @@ app.get("/api/scans", async (req, res) => {
   if (!supabase) {
     return res.json({ scans: [], source: 'local', requestId: res.locals.requestId });
   }
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const auth = await getAuthStatus(req);
+  if (!auth?.id) {
     return res.json({ scans: [], source: 'local', requestId: res.locals.requestId });
   }
-  const token = authHeader.split(' ')[1];
   try {
-    const { data: { user } } = await supabase.auth.getUser(token);
-    if (!user) {
-      return res.json({ scans: [], source: 'local', requestId: res.locals.requestId });
-    }
     const { data: scans, error } = await supabase
       .from('scans')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', auth.id)
       .order('created_at', { ascending: false })
       .limit(20);
     if (error) throw error;
-    res.json({ scans: scans || [], source: 'cloud', requestId: res.locals.requestId });
+    res.json({
+      scans: (scans || []).map(normalizeScanRecord),
+      source: 'cloud',
+      requestId: res.locals.requestId
+    });
   } catch (e) {
     res.json({ scans: [], source: 'local', error: e.message, requestId: res.locals.requestId });
   }
@@ -1194,11 +1335,14 @@ function getFallbackResponse(reason) {
 }
 
 // Main scan endpoint - NEVER returns 500
-app.post("/api/scans", rateLimitScan, async (req, res) => {
+async function handleScanRequest(req, res) {
   const requestId = res.locals.requestId;
+  let content = "";
+  let scanContext;
+  let compareBaseline;
   
   try {
-    const { content, scanContext, compareBaseline } = req.body || {};
+    ({ content = "", scanContext, compareBaseline } = req.body || {});
     
     if (!content || typeof content !== "string") {
       return res.status(400).json({ 
@@ -1213,7 +1357,7 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
     }
     
     // Determine user's tier for character limit
-    const auth = getAuthStatus(req);
+    const auth = await getAuthStatus(req);
     const userTier = auth?.plan || 'free';
     const tierLimits = {
       free: MAX_SCAN_CHARS_FREE,
@@ -1340,26 +1484,21 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
     scanCache.set(cacheKey, { result: scanResult, timestamp: Date.now() });
     
     // Save to Supabase if auth (aligned with schema - no duplicate fields)
-    const authHeader = req.headers.authorization;
-    if (supabase && authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
+    if (supabase && auth?.id) {
       try {
-        const { data: { user } } = await supabase.auth.getUser(token);
-        if (user) {
-          const owaspCategories = (scanResult.parsed.owasp || []).map(o => o.id).filter(Boolean);
-          await supabase.from('scans').insert({
-            user_id: user.id,
-            content_hash: crypto.createHash('sha256').update(content).digest('hex').slice(0, 32),
-            result: scanResult.parsed,
-            score: scanResult.parsed.score,
-            provider: scanResult.provider,
-            model: scanResult.model,
-            scan_context: scanContext,
-            compare_mode: !!compareBaseline,
-            triage_action: scanResult.parsed.triage?.action,
-            owasp_categories: owaspCategories.length > 0 ? owaspCategories : null
-          });
-        }
+        const owaspCategories = (scanResult.parsed.owasp || []).map(o => o.id).filter(Boolean);
+        await supabase.from('scans').insert({
+          user_id: auth.id,
+          content_hash: crypto.createHash('sha256').update(content).digest('hex').slice(0, 32),
+          result: scanResult.parsed,
+          score: scanResult.parsed.score,
+          provider: scanResult.provider,
+          model: scanResult.model,
+          scan_context: scanContext,
+          compare_mode: !!compareBaseline,
+          triage_action: scanResult.parsed.triage?.action,
+          owasp_categories: owaspCategories.length > 0 ? owaspCategories : null
+        });
       } catch (e) {
         log('WARN', 'Failed to save scan', { error: e.message });
       }
@@ -1398,7 +1537,10 @@ app.post("/api/scans", rateLimitScan, async (req, res) => {
       version: APP_VERSION
     });
   }
-});
+}
+
+app.post("/api/scans", rateLimitScan, handleScanRequest);
+app.post("/api/scan", rateLimitScan, handleScanRequest);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -1503,7 +1645,8 @@ app.get('/auth/login', (req, res) => {
   }
 
   const scope = 'user:email';
-  const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(GITHUB_REDIRECT_URI)}&scope=${scope}&allow_signup=true`;
+  const redirectUri = getGithubRedirectUri(req);
+  const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&allow_signup=true`;
   
   log('INFO', 'Redirecting to GitHub OAuth', { clientId: GITHUB_CLIENT_ID });
   res.redirect(githubAuthUrl);
@@ -1531,6 +1674,7 @@ app.get('/auth/callback', async (req, res) => {
 
     // Exchange auth code for access token
     log('INFO', 'Exchanging code for token', { code: code.slice(0, 10) + '...' });
+    const redirectUri = getGithubRedirectUri(req);
     
     const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
@@ -1543,7 +1687,7 @@ app.get('/auth/callback', async (req, res) => {
         client_id: GITHUB_CLIENT_ID,
         client_secret: GITHUB_CLIENT_SECRET,
         code: code,
-        redirect_uri: GITHUB_REDIRECT_URI,
+        redirect_uri: redirectUri,
       }),
     });
 
@@ -1592,29 +1736,37 @@ app.get('/auth/callback', async (req, res) => {
       userEmail = emails.find(e => e.primary)?.email || emails[0]?.email || 'noemail@github.com';
     }
 
-    // Create session token
-    const sessionData = {
+    const profile = await getUserProfile({
       id: userData.id,
       login: userData.login,
       email: userEmail,
       avatar: userData.avatar_url,
+      name: userData.name
+    });
+
+    // Create signed session token
+    const sessionData = {
+      id: profile?.id || userData.id,
+      login: userData.login,
+      email: userEmail,
+      avatar: userData.avatar_url,
       name: userData.name,
+      plan: profile?.plan || 'free',
       authenticated_at: new Date().toISOString(),
     };
     
-    // Set session cookie (HTTP-only, secure) for server-side auth
-    res.cookie('auth_session', Buffer.from(JSON.stringify(sessionData)).toString('base64'), {
+    // Set session cookie (HTTP-only, signed) for server-side auth
+    res.cookie(SESSION_COOKIE_NAME, encodeSessionCookie(sessionData), {
       httpOnly: true,
-      secure: true,
+      secure: isSecureRequest(req),
       sameSite: 'lax',
+      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
 
     log('INFO', 'User authenticated successfully', { userId: userData.id, login: userData.login, email: userEmail });
 
-    // Redirect to dashboard with token in hash for frontend capture
-    const userDataEncoded = encodeURIComponent(JSON.stringify(sessionData));
-    res.redirect(`/dashboard#access_token=session&user=${userDataEncoded}`);
+    res.redirect('/dashboard');
   } catch (error) {
     log('ERROR', 'Auth callback exception', { error: error.message, stack: error.stack });
     res.redirect(`/?error=auth_error&details=${encodeURIComponent(error.message)}`);
@@ -1623,14 +1775,14 @@ app.get('/auth/callback', async (req, res) => {
 
 // ENDPOINT 3: Logout
 app.get('/auth/logout', (req, res) => {
-  res.clearCookie('auth_session');
+  res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
   log('INFO', 'User logged out', {});
   res.redirect('/');
 });
 
 // ENDPOINT 4: Check auth status (API)
-app.get('/api/auth/status', (req, res) => {
-  const auth = getAuthStatus(req);
+app.get('/api/auth/status', async (req, res) => {
+  const auth = await getAuthStatus(req);
   
   if (!auth) {
     return res.json({ authenticated: false });
@@ -1644,7 +1796,23 @@ app.get('/api/auth/status', (req, res) => {
       email: auth.email,
       avatar: auth.avatar,
       name: auth.name,
+      plan: auth.plan || 'free'
     },
+  });
+});
+
+app.get('/api/auth/user', async (req, res) => {
+  const auth = await getAuthStatus(req);
+  res.json({
+    authenticated: Boolean(auth),
+    user: auth ? {
+      id: auth.id,
+      login: auth.login,
+      email: auth.email,
+      avatar: auth.avatar,
+      name: auth.name,
+      plan: auth.plan || 'free'
+    } : null
   });
 });
 
@@ -1654,8 +1822,8 @@ app.get('/dashboard', (req, res) => {
 });
 
 // MIDDLEWARE: Auth required for API endpoints (optional)
-function requireAuth(req, res, next) {
-  const auth = getAuthStatus(req);
+async function requireAuth(req, res, next) {
+  const auth = await getAuthStatus(req);
   
   if (!auth) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -1797,40 +1965,89 @@ const LEMONSQUEEZY_STORE_ID = process.env.LEMONSQUEEZY_STORE_ID;
 const LEMONSQUEEZY_WEBHOOK_SECRET = process.env.LEMONSQUEEZY_WEBHOOK_SECRET;
 
 // Helper: Get or create user profile
-async function getUserProfile(userId) {
+async function getUserProfile(userRef) {
   if (!supabase) return null;
+
+  const user = typeof userRef === "object" ? normalizeUserFields(userRef) : { id: userRef };
+  if (!user?.id && !user?.email) return null;
+
   try {
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    if (error) {
-      // Create default profile
-      const { data: newProfile, error: createError } = await supabase
+    if (user.email) {
+      const { data } = await supabase
         .from('user_profiles')
-        .insert({ id: userId, plan: 'free', scans_used: 0 })
-        .select()
-        .single();
-      return createError ? null : newProfile;
+        .select('*')
+        .eq('email', user.email)
+        .maybeSingle();
+      if (data) return data;
     }
-    return data;
+
+    if (user.id) {
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (data) return data;
+    }
+
+    if (!user.id) return null;
+
+    const insertPayload = {
+      id: user.id,
+      plan: 'free',
+      scans_used: 0
+    };
+
+    if (user.email) insertPayload.email = user.email;
+    if (user.login) insertPayload.login = user.login;
+    if (user.name) insertPayload.name = user.name;
+    if (user.avatar) insertPayload.avatar = user.avatar;
+
+    const { data: newProfile, error: createError } = await supabase
+      .from('user_profiles')
+      .insert(insertPayload)
+      .select()
+      .single();
+    return createError ? null : newProfile;
   } catch (e) {
     return null;
   }
 }
 
 // Lemon Squeezy Checkout
+function getCheckoutVariantId(plan) {
+  const normalizedPlan = String(plan || "").toLowerCase();
+  if (normalizedPlan === "professional" || normalizedPlan === "pro") {
+    return process.env.LEMONSQUEEZY_VARIANT_PRO || null;
+  }
+  if (normalizedPlan === "enterprise" || normalizedPlan === "team") {
+    return process.env.LEMONSQUEEZY_VARIANT_ENTERPRISE || null;
+  }
+  return null;
+}
+
 app.post('/api/create-checkout', async (req, res) => {
   const requestId = res.locals.requestId;
   
   try {
-    const { variantId, email } = req.body;
+    const { plan, variantId, email } = req.body || {};
     
     // Check if Lemon Squeezy is configured
     if (!LEMONSQUEEZY_API_KEY || !LEMONSQUEEZY_STORE_ID) {
       return res.json({ error: "payments_not_configured" });
     }
+
+    const checkoutVariantId = getCheckoutVariantId(plan) || variantId;
+    if (!checkoutVariantId) {
+      return res.status(400).json({ error: "invalid_plan", requestId });
+    }
+
+    const normalizedEmail = String(email || "").trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ error: "invalid_email", requestId });
+    }
+
+    const origin = getRequestOrigin(req);
     
     // Create checkout via Lemon Squeezy API
     const response = await fetch('https://api.lemonsqueezy.com/v1/checkouts', {
@@ -1845,13 +2062,13 @@ app.post('/api/create-checkout', async (req, res) => {
           type: 'checkouts',
           attributes: {
             store_id: LEMONSQUEEZY_STORE_ID,
-            variant_id: variantId,
-            customer_email: email,
+            variant_id: checkoutVariantId,
+            customer_email: normalizedEmail,
             product_options: {
-              redirect_url: `${req.protocol}://${req.get('host')}/dashboard?success=true`,
-              receipt_button_url: `${req.protocol}://${req.get('host')}/dashboard`,
-              receipt_link_url: `${req.protocol}://${req.get('host')}/dashboard`,
-              receipt_thank_you_page_url: `${req.protocol}://${req.get('host')}/dashboard`
+              redirect_url: `${origin}/dashboard?success=true`,
+              receipt_button_url: `${origin}/dashboard`,
+              receipt_link_url: `${origin}/dashboard`,
+              receipt_thank_you_page_url: `${origin}/dashboard`
             }
           }
         }
@@ -1873,7 +2090,7 @@ app.post('/api/create-checkout', async (req, res) => {
 });
 
 // Lemon Squeezy Webhook
-app.post('/api/lemonsqueezy-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+app.post('/api/lemonsqueezy-webhook', async (req, res) => {
   const requestId = res.locals.requestId;
   
   if (!LEMONSQUEEZY_WEBHOOK_SECRET) {
@@ -1887,18 +2104,20 @@ app.post('/api/lemonsqueezy-webhook', express.raw({ type: 'application/json' }),
     return res.status(400).json({ ok: false, error: 'Missing signature' });
   }
   
-  // Verify webhook signature (simplified - in production you'd use crypto)
-  const crypto = require('crypto');
-  const hmac = crypto.createHmac('sha256', LEMONSQUEEZY_WEBHOOK_SECRET);
-  const digest = hmac.update(req.body).digest('hex');
+  const rawBody = Buffer.isBuffer(req.body)
+    ? req.body
+    : Buffer.from(JSON.stringify(req.body || {}), 'utf8');
+  const digest = crypto.createHmac('sha256', LEMONSQUEEZY_WEBHOOK_SECRET).update(rawBody).digest('hex');
   
-  if (signature !== digest) {
+  const signatureBuffer = Buffer.from(String(signature), 'utf8');
+  const digestBuffer = Buffer.from(digest, 'utf8');
+  if (signatureBuffer.length !== digestBuffer.length || !crypto.timingSafeEqual(signatureBuffer, digestBuffer)) {
     log('ERROR', 'Invalid webhook signature', { requestId });
     return res.status(400).json({ ok: false, error: 'Invalid signature' });
   }
   
   try {
-    const event = JSON.parse(req.body);
+    const event = JSON.parse(rawBody.toString('utf8'));
     
     if (event.meta.event_name === 'order_created') {
       const order = event.data.attributes;
@@ -1944,21 +2163,18 @@ app.post('/api/lemonsqueezy-webhook', express.raw({ type: 'application/json' }),
 // API Key Management
 app.post('/api/apikeys', async (req, res) => {
   const requestId = res.locals.requestId;
-  
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
+
+  if (!supabase) {
+    return res.status(503).json({ ok: false, error: 'API key storage is not configured', requestId });
+  }
+
+  const auth = await getAuthStatus(req);
+  if (!auth?.id) {
     return res.status(401).json({ ok: false, error: 'Authentication required', requestId });
   }
-  
-  const token = authHeader.split(' ')[1];
-  
+
   try {
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error || !user) {
-      return res.status(401).json({ ok: false, error: 'Invalid token', requestId });
-    }
-    
-    const profile = await getUserProfile(user.id);
+    const profile = await getUserProfile(auth);
     if (!profile || profile.plan === 'free') {
       return res.status(403).json({ ok: false, error: 'API keys require Pro plan', requestId });
     }
@@ -1968,7 +2184,7 @@ app.post('/api/apikeys', async (req, res) => {
     const keyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
     
     await supabase.from('api_keys').insert({
-      user_id: user.id,
+      user_id: auth.id,
       key_hash: keyHash,
       name: req.body.name || 'Default Key',
       last_used_at: null
@@ -1983,24 +2199,21 @@ app.post('/api/apikeys', async (req, res) => {
 
 app.get('/api/apikeys', async (req, res) => {
   const requestId = res.locals.requestId;
-  
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
+
+  if (!supabase) {
+    return res.status(503).json({ ok: false, error: 'API key storage is not configured', requestId });
+  }
+
+  const auth = await getAuthStatus(req);
+  if (!auth?.id) {
     return res.status(401).json({ ok: false, error: 'Authentication required', requestId });
   }
-  
-  const token = authHeader.split(' ')[1];
-  
+
   try {
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error || !user) {
-      return res.status(401).json({ ok: false, error: 'Invalid token', requestId });
-    }
-    
     const { data: keys, error: keysError } = await supabase
       .from('api_keys')
       .select('id, name, created_at, last_used_at, revoked_at')
-      .eq('user_id', user.id)
+      .eq('user_id', auth.id)
       .is('revoked_at', null);
     
     if (keysError) throw keysError;
@@ -2020,12 +2233,46 @@ app.get('/api/apikeys', async (req, res) => {
   }
 });
 
+app.delete('/api/apikeys/:id?', async (req, res) => {
+  const requestId = res.locals.requestId;
+
+  if (!supabase) {
+    return res.status(503).json({ ok: false, error: 'API key storage is not configured', requestId });
+  }
+
+  const auth = await getAuthStatus(req);
+  if (!auth?.id) {
+    return res.status(401).json({ ok: false, error: 'Authentication required', requestId });
+  }
+
+  const keyId = req.params.id || req.body?.id;
+  if (!keyId) {
+    return res.status(400).json({ ok: false, error: 'API key id is required', requestId });
+  }
+
+  try {
+    const { error } = await supabase
+      .from('api_keys')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('id', keyId)
+      .eq('user_id', auth.id)
+      .is('revoked_at', null);
+
+    if (error) throw error;
+
+    res.json({ ok: true, requestId });
+  } catch (error) {
+    log('ERROR', 'API key revoke failed', { requestId, error: error.message });
+    res.status(500).json({ ok: false, error: 'Failed to revoke API key', requestId });
+  }
+});
+
 // Dashboard Data - returns REAL data from Supabase
 app.get('/api/dashboard', async (req, res) => {
   const requestId = res.locals.requestId;
   
   // Check for GitHub OAuth session
-  const auth = getAuthStatus(req);
+  const auth = await getAuthStatus(req);
   if (!auth) {
     return res.json({ 
       ok: false, 
@@ -2041,21 +2288,10 @@ app.get('/api/dashboard', async (req, res) => {
     let highRiskFindings = 0;
     let apiKeyCount = 0;
     let recentScans = [];
-    let plan = 'free';
+    let plan = auth.plan || 'free';
     
     // Query real data from Supabase if available
     if (supabase) {
-      // Get user's profile for plan
-      const { data: profile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('plan')
-        .eq('id', auth.id)
-        .single();
-      
-      if (!profileError && profile) {
-        plan = profile.plan || 'free';
-      }
-      
       // Count scans this month
       const monthStart = new Date();
       monthStart.setDate(1);
@@ -2070,7 +2306,7 @@ app.get('/api/dashboard', async (req, res) => {
       
       if (!scansError && scans) {
         scansThisMonth = scans.length;
-        recentScans = scans.slice(0, 5);
+        recentScans = scans.slice(0, 5).map(normalizeScanRecord);
         
         // Count today's scans
         const todayStart = new Date();
@@ -2078,7 +2314,7 @@ app.get('/api/dashboard', async (req, res) => {
         scansToday = scans.filter(s => new Date(s.created_at) >= todayStart).length;
         
         // Count high risk findings
-        highRiskFindings = scans.filter(s => s.result_score >= 75).length;
+        highRiskFindings = scans.filter(s => getCanonicalScanScore(s) >= 75).length;
       }
       
       // Count API keys
@@ -2135,6 +2371,10 @@ app.get("/pricing", (req, res) => {
 
 app.get("/pricing.html", (req, res) => {
   res.sendFile(path.join(__dirname, "pricing.html"));
+});
+
+app.get("/docs", (req, res) => {
+  res.redirect("https://github.com/salimassili62-afk/ai-agent-security-copilot#readme");
 });
 
 // Serve scanner.html

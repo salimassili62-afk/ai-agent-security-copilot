@@ -6,7 +6,7 @@ const path = require('path');
 const { scanFile } = require('./scanner');
 const { postPRComment } = require('./pr-comment');
 
-const API_URL = 'https://ai-agent-security-copilot.vercel.app/api/scan';
+const API_URL = 'https://ai-agent-security-copilot.vercel.app/api/scans';
 
 async function run() {
   try {

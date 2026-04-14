@@ -632,8 +632,8 @@ Schema:
     let scanStartTime = null;
 
     // GitHub OAuth Auth State
-    let accessToken = localStorage.getItem('access_token');
-    let refreshToken = localStorage.getItem('refresh_token');
+    let accessToken = null;
+    let refreshToken = null;
     let currentUser = null;
 
     // Check for OAuth callback tokens in URL hash
@@ -671,9 +671,6 @@ Schema:
     }
 
     async function checkAuth() {
-      // First check for OAuth callback
-      if (checkOAuthCallback()) return;
-      
       // Check for error in query params
       const urlParams = new URLSearchParams(window.location.search);
       const error = urlParams.get('error');
@@ -682,23 +679,15 @@ Schema:
         window.history.replaceState({}, document.title, '/');
       }
       
-      if (!accessToken) {
-        showGuestMode();
-        return;
-      }
-      
       try {
-        const res = await fetch("/api/auth/user", {
-          headers: { "Authorization": `Bearer ${accessToken}` }
-        });
+        const res = await fetch("/api/auth/status");
         const data = await res.json();
-        if (data.user) {
+        if (data.authenticated && data.user) {
           currentUser = data.user;
-          showLoggedInMode();
-          loadCloudHistory();
+          await showLoggedInMode();
+          await loadCloudHistory();
         } else {
-          // Token invalid, try refresh
-          await tryRefreshToken();
+          showGuestMode();
         }
       } catch (e) {
         showGuestMode();
@@ -740,8 +729,6 @@ Schema:
       currentUser = null;
       accessToken = null;
       refreshToken = null;
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
       const guestBadge = document.getElementById('guestBadge');
       if (guestBadge) guestBadge.style.display = 'inline-block';
       authStatus.innerHTML = '';
@@ -753,19 +740,18 @@ Schema:
     async function showLoggedInMode() {
       const guestBadge = document.getElementById('guestBadge');
       if (guestBadge) guestBadge.style.display = 'none';
-      const avatar = currentUser?.user_metadata?.avatar_url || '';
-      const name = currentUser?.user_metadata?.full_name || currentUser?.email || 'User';
+      const avatar = currentUser?.avatar || '';
+      const name = currentUser?.name || currentUser?.login || currentUser?.email || 'User';
       authStatus.innerHTML = `<span class="user-info"><img src="${avatar}" alt="" onerror="this.style.display='none'" /> ${name}</span>`;
       loginBtn.style.display = 'none';
       logoutBtn.style.display = 'inline-block';
       updateStorageIndicator(true);
-      // Migrate localStorage scans to cloud
       await migrateLocalStorageToCloud();
     }
 
     async function migrateLocalStorageToCloud() {
       const localScans = JSON.parse(localStorage.getItem('riskHistory') || '[]');
-      if (localScans.length === 0) return;
+      if (localScans.length === 0 || !currentUser) return;
       
       let migrated = 0;
       for (const scan of localScans) {
@@ -773,15 +759,11 @@ Schema:
           await fetch("/api/scans", {
             method: "POST",
             headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${accessToken}`
+              "Content-Type": "application/json"
             },
             body: JSON.stringify({
               content: scan.content || "Migrated from localStorage",
-              scanContext: "migrated-scan",
-              result_label: scan.label || "LOW RISK",
-              result_score: scan.score || 0,
-              result_summary: "Migrated from localStorage"
+              scanContext: "migrated-scan"
             })
           });
           migrated++;
@@ -807,38 +789,21 @@ Schema:
     }
 
     async function startGitHubLogin() {
-      window.location.href = 'https://khysogghgvhoqymsgncr.supabase.co/auth/v1/authorize?provider=github&redirect_to=https://ai-agent-security-copilot.vercel.app/auth/callback';
+      window.location.href = '/auth/login';
     }
 
     async function logout() {
-      await supabase.auth.signOut();
-      currentUser = null;
-      accessToken = null;
-      updateAuthUI(false);
-      showToast('Logged out successfully');
+      window.location.href = '/auth/logout';
     }
 
     async function loadCloudHistory() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
+      if (!currentUser) return;
       
       try {
-        const res = await fetch("/api/scans", {
-          headers: { "Authorization": `Bearer ${session.access_token}` }
-        });
+        const res = await fetch("/api/scans");
         const data = await res.json();
         if (data.scans?.length > 0) {
-          // Transform scans to match local format
-          const scans = data.scans.map(s => ({
-            content: s.content?.substring(0, 100) || "Scan from cloud",
-            score: s.result_score || 0,
-            severity: s.result_score >= 75 ? 'high' : s.result_score >= 40 ? 'medium' : 'low',
-            timestamp: new Date(s.created_at).getTime()
-          }));
-          
-          localHistory = scans;
-          updateHistoryUI();
-          showToast(`Loaded ${scans.length} scans from cloud`);
+          renderCloudHistory(data.scans);
         }
       } catch (e) {
         console.error('Error loading cloud history:', e);
@@ -1353,13 +1318,12 @@ Schema:
 
     async function saveHistory(item, fullScanData = null) {
       // If user is authenticated, save to Supabase
-      if (currentUser && accessToken) {
+      if (currentUser) {
         try {
           const res = await fetch("/api/scans", {
             method: "POST",
             headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${accessToken}`
+              "Content-Type": "application/json"
             },
             body: JSON.stringify({
               content: fullScanData?.content?.substring(0, 500) || item.content,

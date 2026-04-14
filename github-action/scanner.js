@@ -5,7 +5,7 @@ const path = require('path');
 // Import PR Blocker engine
 const { PRBlockerEngine } = require('../engine/pr-blocker');
 
-const API_URL = process.env.AI_SECURITY_API_URL || 'https://ai-agent-security-copilot.vercel.app/api/scan';
+const API_URL = process.env.AI_SECURITY_API_URL || 'https://ai-agent-security-copilot.vercel.app/api/scans';
 const prBlocker = new PRBlockerEngine();
 
 async function scanFile(filePath, apiKey, options = {}) {
