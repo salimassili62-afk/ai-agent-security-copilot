@@ -1172,38 +1172,13 @@ Schema:
     }
 
     async function saveHistory(item, fullScanData = null) {
-      // If user is authenticated, save to Supabase
-      if (currentUser) {
-        try {
-          const res = await fetch("/api/scans", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              content: fullScanData?.content?.substring(0, 500) || item.content,
-              scanContext: fullScanData?.context || "security-scan",
-              result_label: item.label,
-              result_score: item.score,
-              result_summary: fullScanData?.result?.summary || ""
-            })
-          });
-          const data = await res.json();
-          if (data.ok) {
-            showToast('Scan saved to cloud ✓');
-          }
-        } catch (e) {
-          console.error('Failed to save scan to cloud:', e);
-        }
-      } else {
-        // Not authenticated - save to localStorage
-        try {
-          const list = JSON.parse(localStorage.getItem("riskHistory") || "[]");
-          list.unshift(item);
-          localStorage.setItem("riskHistory", JSON.stringify(list.slice(0, 8)));
-        } catch (_) {
-          /* quota or privacy mode */
-        }
+      // Always save to localStorage (no auth required)
+      try {
+        const list = JSON.parse(localStorage.getItem("riskHistory") || "[]");
+        list.unshift(item);
+        localStorage.setItem("riskHistory", JSON.stringify(list.slice(0, 8)));
+      } catch (_) {
+        /* quota or privacy mode */
       }
     }
 
@@ -1546,12 +1521,6 @@ Schema:
       resetTriageUi();
       lastScanBundle = null;
     });
-
-    // Check URL params for OAuth errors
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('error') === 'oauth_not_configured') {
-      alert('GitHub OAuth is not configured. Please contact the administrator.');
-    }
 
     renderList(reasonsList, [], "No scan yet.");
     renderList(fixesList, [], "No scan yet.");
