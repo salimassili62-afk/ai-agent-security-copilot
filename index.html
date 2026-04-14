@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Agent Security Copilot</title>
-  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <!-- Supabase removed - app now works without auth -->
   <style>
     :root {
       --bg: #0b1220;
@@ -30,16 +30,16 @@
       margin: 0 auto;
       padding: 24px 16px 56px;
     }
-    h1 { margin: 0 0 6px; font-size: 28px; }
-    .sub { color: var(--muted); margin: 0 0 18px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    .sub { color: var(--muted); margin: 0 0 24px; line-height: 1.6; }
     .card {
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 14px;
-      padding: 16px;
-      margin-bottom: 14px;
+      padding: 20px;
+      margin-bottom: 20px;
     }
-    label { display: block; font-weight: 600; margin-bottom: 8px; }
+    label { display: block; font-weight: 600; margin-bottom: 10px; color: var(--text); }
     textarea {
       width: 100%;
       min-height: 180px;
@@ -51,7 +51,7 @@
       padding: 12px;
       font-size: 14px;
     }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
     button {
       border: 0;
       border-radius: 10px;
@@ -306,11 +306,75 @@
       border-radius: 50%;
       border: 1px solid var(--border);
     }
+    
+    /* Mobile responsiveness */
+    @media (max-width: 768px) {
+      .wrap {
+        padding: 16px 12px 40px;
+      }
+      h1 {
+        font-size: 24px;
+      }
+      .landing-hero h1 {
+        font-size: 36px;
+      }
+      .landing-hero p {
+        font-size: 16px;
+      }
+      .hero-cta {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .hero-cta .btn-large {
+        width: 100%;
+        text-align: center;
+      }
+      .features-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+      .card {
+        padding: 12px;
+      }
+      .row {
+        flex-direction: column;
+        gap: 8px;
+      }
+      .btn-row-tight {
+        flex-wrap: wrap;
+      }
+      .btn-row-tight button {
+        flex: 1;
+        min-width: 120px;
+      }
+      textarea {
+        min-height: 150px;
+      }
+      .auth-bar {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .landing-hero nav {
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px 12px;
+      }
+      .landing-hero nav > div {
+        flex-direction: column;
+        gap: 12px;
+        width: 100%;
+      }
+      .landing-hero nav > div a {
+        width: 100%;
+        text-align: center;
+        padding: 8px;
+      }
+    }
   </style>
 </head>
 <body>
   <!-- Landing Page Hero -->
-  <div class="landing-hero hidden" id="landingHero">
+  <div class="landing-hero" id="landingHero">
     <nav style="position: absolute; top: 0; left: 0; right: 0; padding: 20px 24px; display: flex; justify-content: space-between; align-items: center;">
       <a href="/" style="display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 700; font-size: 18px;">
         <div style="width: 32px; height: 32px; background: linear-gradient(135deg, var(--primary), #8b5cf6); border-radius: 8px; display: flex; align-items: center; justify-content: center;">🛡️</div>
@@ -365,15 +429,14 @@
   </div>
 
   <!-- Scanner Section -->
-  <div class="scanner-section active" id="scannerSection">
+  <div class="scanner-section" id="scannerSection">
     <div class="wrap">
       <a href="#" class="back-to-landing" onclick="showLanding(); return false;">← Back to landing page</a>
       <div class="auth-bar">
-        <span id="authStatus"></span>
-        <a href="pricing.html" class="btn-ghost" style="margin-right: 8px; text-decoration: none; display: inline-block; padding: 6px 12px; font-size: 13px;">Pricing</a>
-        <span class="guest-badge" id="guestBadge" style="display:none; background: var(--border); color: var(--muted); padding: 4px 10px; border-radius: 999px; font-size: 12px; margin-right: 8px;">👤 Guest</span>
-        <button class="btn-ghost" id="loginBtn" style="font-size: 13px;">Sign in 🔜</button>
-        <button class="btn-ghost" id="logoutBtn" style="display:none;">Logout</button>
+        <span class="trust-signal" style="color: var(--ok); font-size: 13px; font-weight: 600;">✓ No login required</span>
+        <span style="color: var(--muted); font-size: 13px;">·</span>
+        <span class="trust-signal" style="color: var(--ok); font-size: 13px; font-weight: 600;">⚡ Runs in &lt;2 seconds</span>
+        <a href="pricing.html" class="btn-ghost" style="margin-left: auto; text-decoration: none; display: inline-block; padding: 6px 12px; font-size: 13px;">Pricing</a>
       </div>
       <h1>AI Security Copilot</h1>
       <p class="sub">The fastest way to scan LLM prompts for security risks. <strong>Free, open source, powered by Groq AI.</strong> <button type="button" class="btn-ghost small" id="helpBtn" style="margin-left:8px;">Shortcuts</button></p>
@@ -554,10 +617,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
-    // Initialize Supabase client first, before any other code that uses it
-    const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQzOX0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // App now works without auth - Supabase removed
 
     // Wait for DOM to be ready before accessing DOM elements
     document.addEventListener('DOMContentLoaded', function() {
@@ -630,212 +690,11 @@ Schema:
     let toastTimer = null;
     const scanTimeEl = null; // Element doesn't exist in DOM, will check before using
     let scanStartTime = null;
+    let isScanning = false;
+    let lastScanTime = 0;
+    const SCAN_DEBOUNCE_MS = 1000; // 1 second debounce between scans
 
-    // GitHub OAuth Auth State
-    let accessToken = null;
-    let refreshToken = null;
-    let currentUser = null;
-
-    // Check for OAuth callback tokens in URL hash
-    function checkOAuthCallback() {
-      const hash = window.location.hash;
-      if (hash && hash.includes('access_token=')) {
-        const params = new URLSearchParams(hash.slice(1));
-        const token = params.get('access_token');
-        const refresh = params.get('refresh_token');
-        const userStr = params.get('user');
-        
-        if (token) {
-          accessToken = token;
-          // Use Supabase to handle authentication
-          supabase.auth.setAuth(token);
-          if (refresh) {
-            refreshToken = refresh;
-          }
-          if (userStr) {
-            try {
-              currentUser = JSON.parse(decodeURIComponent(userStr));
-            } catch (e) {
-              console.error('Failed to parse user data:', e);
-            }
-          }
-          // Clean URL
-          window.history.replaceState({}, document.title, '/');
-          showToast('Signed in successfully!');
-          showLoggedInMode();
-          loadCloudHistory();
-          return true;
-        }
-      }
-      return false;
-    }
-
-    async function checkAuth() {
-      // Check for error in query params
-      const urlParams = new URLSearchParams(window.location.search);
-      const error = urlParams.get('error');
-      if (error) {
-        showToast('Login failed: ' + error);
-        window.history.replaceState({}, document.title, '/');
-      }
-      
-      try {
-        const res = await fetch("/api/auth/status");
-        const data = await res.json();
-        if (data.authenticated && data.user) {
-          currentUser = data.user;
-          await showLoggedInMode();
-          await loadCloudHistory();
-        } else {
-          showGuestMode();
-        }
-      } catch (e) {
-        showGuestMode();
-      }
-    }
-
-    async function tryRefreshToken() {
-      if (!refreshToken) {
-        showGuestMode();
-        return;
-      }
-      
-      try {
-        const res = await fetch("/api/auth/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: refreshToken })
-        });
-        const data = await res.json();
-        if (data.ok && data.session?.access_token) {
-          accessToken = data.session.access_token;
-          localStorage.setItem('access_token', accessToken);
-          if (data.session.refresh_token) {
-            refreshToken = data.session.refresh_token;
-            localStorage.setItem('refresh_token', refreshToken);
-          }
-          currentUser = data.user;
-          showLoggedInMode();
-          loadCloudHistory();
-        } else {
-          showGuestMode();
-        }
-      } catch (e) {
-        showGuestMode();
-      }
-    }
-
-    function showGuestMode() {
-      currentUser = null;
-      accessToken = null;
-      refreshToken = null;
-      const guestBadge = document.getElementById('guestBadge');
-      if (guestBadge) guestBadge.style.display = 'inline-block';
-      authStatus.innerHTML = '';
-      loginBtn.style.display = 'inline-block';
-      logoutBtn.style.display = 'none';
-      updateStorageIndicator(false);
-    }
-
-    async function showLoggedInMode() {
-      const guestBadge = document.getElementById('guestBadge');
-      if (guestBadge) guestBadge.style.display = 'none';
-      const avatar = currentUser?.avatar || '';
-      const name = currentUser?.name || currentUser?.login || currentUser?.email || 'User';
-      authStatus.innerHTML = `<span class="user-info"><img src="${avatar}" alt="" onerror="this.style.display='none'" /> ${name}</span>`;
-      loginBtn.style.display = 'none';
-      logoutBtn.style.display = 'inline-block';
-      updateStorageIndicator(true);
-      await migrateLocalStorageToCloud();
-    }
-
-    async function migrateLocalStorageToCloud() {
-      const localScans = JSON.parse(localStorage.getItem('riskHistory') || '[]');
-      if (localScans.length === 0 || !currentUser) return;
-      
-      let migrated = 0;
-      for (const scan of localScans) {
-        try {
-          await fetch("/api/scans", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              content: scan.content || "Migrated from localStorage",
-              scanContext: "migrated-scan"
-            })
-          });
-          migrated++;
-        } catch (e) {
-          console.error('Failed to migrate scan:', e);
-        }
-      }
-      
-      if (migrated > 0) {
-        localStorage.removeItem('riskHistory');
-        showToast(`${migrated} scans migrated to cloud ✓`);
-        loadCloudHistory();
-      }
-    }
-
-    function updateStorageIndicator(isCloud) {
-      const storageIndicator = document.getElementById('storageIndicator');
-      if (storageIndicator) {
-        storageIndicator.innerHTML = isCloud 
-          ? '<span style="color: var(--ok);">☁️ Synced to cloud ✓</span>'
-          : '<span style="color: var(--muted);">💾 Saved in your browser via localStorage</span>';
-      }
-    }
-
-    async function startGitHubLogin() {
-      window.location.href = '/auth/login';
-    }
-
-    async function logout() {
-      window.location.href = '/auth/logout';
-    }
-
-    async function loadCloudHistory() {
-      if (!currentUser) return;
-      
-      try {
-        const res = await fetch("/api/scans");
-        const data = await res.json();
-        if (data.scans?.length > 0) {
-          renderCloudHistory(data.scans);
-        }
-      } catch (e) {
-        console.error('Error loading cloud history:', e);
-      }
-    }
-
-    function renderCloudHistory(scans) {
-      historyEl.innerHTML = '<p class="small" style="margin-bottom:8px;">Cloud scan history (synced across devices)</p>';
-      scans.forEach((scan) => {
-        const div = document.createElement("div");
-        div.className = "history-item";
-        const strong = document.createElement("strong");
-        // Handle both old schema (nested result) and new schema (flattened fields)
-        const label = scan.result_label || scan.result?.label || "—";
-        const score = scan.result_score ?? scan.result?.score ?? scan.score ?? "?";
-        strong.textContent = `${label} - ${score}/100`;
-        div.appendChild(strong);
-        div.appendChild(document.createElement("br"));
-        const small = document.createElement("span");
-        small.className = "small";
-        small.textContent = new Date(scan.created_at).toLocaleString();
-        div.appendChild(small);
-        historyEl.appendChild(div);
-      });
-    }
-
-    // Event listeners
-    loginBtn.addEventListener("click", startGitHubLogin);
-    logoutBtn.addEventListener("click", logout);
-
-    // Initial auth check
-    checkAuth();
+    // Auth removed - app works without login
 
     // Update footer with accurate info based on scan mode
     function updateFooter(provider, fallback, heuristicOnly) {
@@ -1456,6 +1315,17 @@ Schema:
     });
 
     scanBtn.addEventListener("click", async () => {
+      // Rate limiting - prevent spam clicks
+      const now = Date.now();
+      if (isScanning) {
+        showToast('Scan already in progress...');
+        return;
+      }
+      if (now - lastScanTime < SCAN_DEBOUNCE_MS) {
+        showToast('Please wait before scanning again.');
+        return;
+      }
+      
       const raw = inputText.value;
       const content = raw.trim();
       if (!content) {
@@ -1466,6 +1336,18 @@ Schema:
         scoreReason.textContent = `Paste is too long (${content.length} chars). Trim below ${MAX_INPUT_CHARS} or split into chunks.`;
         return;
       }
+      
+      // Basic input validation - sanitize dangerous patterns
+      const dangerousPatterns = [/<script[^>]*>/i, /javascript:/i, /on\w+\s*=/i];
+      for (const pattern of dangerousPatterns) {
+        if (pattern.test(content)) {
+          scoreReason.textContent = "Input contains potentially dangerous patterns. Please sanitize before scanning.";
+          return;
+        }
+      }
+      
+      isScanning = true;
+      lastScanTime = now;
       const scanContext = scanContextEl.value;
       const baseline = compareToggle.checked ? baselineText.value.trim() : "";
 
@@ -1624,6 +1506,7 @@ Schema:
         renderList(redTeamList, [], "No follow-up probes.");
       } finally {
         setScanLoading(false);
+        isScanning = false;
       }
     });
 
@@ -1679,6 +1562,24 @@ Schema:
     renderList(redTeamList, [], "No scan yet.");
     resetTriageUi();
     loadHistory();
+
+    // Check URL params for direct scanner access
+    if (window.location.search.includes('scanner') || window.location.search.includes('signup')) {
+      showScanner();
+    }
+
+    // Load saved input from localStorage
+    const savedInput = localStorage.getItem('lastInput');
+    if (savedInput) {
+      inputText.value = savedInput;
+      updateCharMeta();
+    }
+
+    // Save input to localStorage on change
+    inputText.addEventListener('input', () => {
+      localStorage.setItem('lastInput', inputText.value);
+      updateCharMeta();
+    });
     }); // Close DOMContentLoaded event listener
 
     // Landing/Scanner view switching - MUST be in global scope for onclick
@@ -1693,13 +1594,6 @@ Schema:
       document.getElementById('scannerSection').classList.remove('active');
       window.scrollTo(0, 0);
     }
-
-    // Check URL params for direct scanner access (after DOMContentLoaded)
-    document.addEventListener('DOMContentLoaded', function() {
-      if (window.location.search.includes('scanner') || window.location.search.includes('signup')) {
-        showScanner();
-      }
-    });
   </script>
 </body>
 </html>

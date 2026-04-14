@@ -39,16 +39,23 @@ const SESSION_SECRET =
   GITHUB_CLIENT_SECRET ||
   "local-dev-session-secret";
 
-// Optional Supabase
+// OAuth disabled - app works without auth
+const OAUTH_ENABLED = !!(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET);
+
+// Optional Supabase - disabled gracefully if not configured
 let supabase = null;
-if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
+const SUPABASE_ENABLED = !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY);
+if (SUPABASE_ENABLED) {
   try {
     const { createClient } = require("@supabase/supabase-js");
     supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
     console.log('[INIT] Supabase connected');
   } catch (e) {
     console.log('[INIT] Supabase not available:', e.message);
+    supabase = null;
   }
+} else {
+  console.log('[INIT] Supabase disabled - app works without persistence');
 }
 
 // Initialize new engines
@@ -1639,9 +1646,9 @@ app.get('/api/health/groq', async (req, res) => {
 
 // ENDPOINT 1: Initiate GitHub OAuth login
 app.get('/auth/login', (req, res) => {
-  if (!GITHUB_CLIENT_ID) {
-    log('ERROR', 'GitHub OAuth not configured', { missingVar: 'GITHUB_CLIENT_ID' });
-    return res.status(500).json({ error: 'GitHub OAuth not configured. Missing GITHUB_CLIENT_ID.' });
+  if (!OAUTH_ENABLED) {
+    log('INFO', 'GitHub OAuth disabled - app works without auth', {});
+    return res.redirect('/');
   }
 
   const scope = 'user:email';
@@ -1654,6 +1661,10 @@ app.get('/auth/login', (req, res) => {
 
 // ENDPOINT 2: GitHub OAuth callback (after user approves)
 app.get('/auth/callback', async (req, res) => {
+  if (!OAUTH_ENABLED) {
+    log('INFO', 'GitHub OAuth disabled - redirecting to home', {});
+    return res.redirect('/');
+  }
   try {
     const { code, error, error_description } = req.query;
 
@@ -1775,6 +1786,9 @@ app.get('/auth/callback', async (req, res) => {
 
 // ENDPOINT 3: Logout
 app.get('/auth/logout', (req, res) => {
+  if (!OAUTH_ENABLED) {
+    return res.redirect('/');
+  }
   res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
   log('INFO', 'User logged out', {});
   res.redirect('/');
@@ -1782,22 +1796,22 @@ app.get('/auth/logout', (req, res) => {
 
 // ENDPOINT 4: Check auth status (API)
 app.get('/api/auth/status', async (req, res) => {
+  if (!OAUTH_ENABLED) {
+    return res.status(404).json({ error: 'GitHub OAuth is not configured' });
+  }
   const auth = await getAuthStatus(req);
   
   if (!auth) {
-    return res.json({ authenticated: false });
+    return res.json({ authenticated: false, user: null });
   }
-
+  
   res.json({
     authenticated: true,
     user: {
-      id: auth.id,
-      login: auth.login,
-      email: auth.email,
-      avatar: auth.avatar,
-      name: auth.name,
-      plan: auth.plan || 'free'
-    },
+      login: auth.user.login,
+      name: auth.user.name,
+      avatar: auth.user.avatar_url
+    }
   });
 });
 
@@ -1816,13 +1830,19 @@ app.get('/api/auth/user', async (req, res) => {
   });
 });
 
-// Serve dashboard.html - client-side handles auth
+// Serve dashboard.html - only if OAuth is configured
 app.get('/dashboard', (req, res) => {
+  if (!OAUTH_ENABLED) {
+    return res.redirect('/?info=dashboard_disabled');
+  }
   res.sendFile(path.join(__dirname, 'dashboard.html'));
 });
 
 // MIDDLEWARE: Auth required for API endpoints (optional)
 async function requireAuth(req, res, next) {
+  if (!OAUTH_ENABLED) {
+    return res.status(401).json({ error: 'GitHub OAuth is not configured' });
+  }
   const auth = await getAuthStatus(req);
   
   if (!auth) {
