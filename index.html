@@ -835,7 +835,6 @@ Schema:
     async function compareWithEndpoint(baseline, candidate, scanContext) {
       const payload = { baseline, candidate, scanContext };
       const headers = { "Content-Type": "application/json" };
-      if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
       
       const response = await fetch("/api/compare", {
         method: "POST",
@@ -886,9 +885,6 @@ Schema:
       const headers = {
         "Content-Type": "application/json"
       };
-      if (accessToken) {
-        headers["Authorization"] = `Bearer ${accessToken}`;
-      }
       const response = await fetch("/api/scans", {
         method: "POST",
         headers,
