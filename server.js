@@ -1549,6 +1549,178 @@ async function handleScanRequest(req, res) {
 app.post("/api/scans", rateLimitScan, handleScanRequest);
 app.post("/api/scan", rateLimitScan, handleScanRequest);
 
+// ============================================
+// RUNTIME SECURITY API (Real-time protection)
+// ============================================
+
+// Lightweight rate limiter for runtime API (separate from scan limits)
+const runtimeRateBuckets = new Map();
+const RUNTIME_RATE_LIMIT = 1000; // requests per minute
+const RUNTIME_WINDOW_MS = 60000; // 1 minute
+
+function checkRuntimeRateLimit(ip) {
+  const now = Date.now();
+  const bucket = runtimeRateBuckets.get(ip);
+  
+  if (!bucket || now > bucket.resetAt) {
+    runtimeRateBuckets.set(ip, { count: 1, resetAt: now + RUNTIME_WINDOW_MS });
+    return { allowed: true, remaining: RUNTIME_RATE_LIMIT - 1 };
+  }
+  
+  if (bucket.count >= RUNTIME_RATE_LIMIT) {
+    return { allowed: false, remaining: 0, retryAfter: Math.ceil((bucket.resetAt - now) / 1000) };
+  }
+  
+  bucket.count++;
+  return { allowed: true, remaining: RUNTIME_RATE_LIMIT - bucket.count };
+}
+
+// Slack alerting helper
+async function sendSlackAlert(payload) {
+  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+  if (!webhookUrl) return;
+  
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: `🚨 AI Security Alert`,
+        blocks: [
+          {
+            type: 'header',
+            text: {
+              type: 'plain_text',
+              text: '🚨 AI Security Alert',
+              emoji: true
+            }
+          },
+          {
+            type: 'section',
+            fields: [
+              { type: 'mrkdwn', text: `*Action:*\n${payload.action}` },
+              { type: 'mrkdwn', text: `*Risk:*\n${payload.risk}` },
+              { type: 'mrkdwn', text: `*Score:*\n${payload.score}/100` },
+              { type: 'mrkdwn', text: `*Context:*\n${payload.context || 'end-user input'}` }
+            ]
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `*Reason:*\n${payload.reason}`
+            }
+          },
+          {
+            type: 'context',
+            elements: [
+              {
+                type: 'mrkdwn',
+                text: `Sample: "${payload.sample?.substring(0, 100)}${payload.sample?.length > 100 ? '...' : ''}"`
+              }
+            ]
+          }
+        ]
+      })
+    });
+  } catch (e) {
+    log('WARN', 'Slack alert failed', { error: e.message });
+  }
+}
+
+// Runtime scan endpoint - FAST (<200ms target)
+app.post('/api/runtime-scan', async (req, res) => {
+  const requestId = res.locals?.requestId || crypto.randomUUID();
+  const startTime = Date.now();
+  
+  // Rate limiting
+  const clientIp = getClientIp(req);
+  const rateCheck = checkRuntimeRateLimit(clientIp);
+  if (!rateCheck.allowed) {
+    return res.status(429).json({
+      action: 'BLOCK',
+      risk: 'HIGH',
+      score: 100,
+      reason: 'Rate limit exceeded',
+      matched_patterns: ['rate_limit_exceeded'],
+      requestId
+    });
+  }
+  
+  // Input validation
+  const { prompt, context = 'end-user input' } = req.body || {};
+  
+  if (!prompt || typeof prompt !== 'string') {
+    return res.status(400).json({
+      error: 'Missing or invalid prompt field',
+      requestId
+    });
+  }
+  
+  // Security: Limit input size
+  const MAX_RUNTIME_INPUT = 10000;
+  if (prompt.length > MAX_RUNTIME_INPUT) {
+    return res.status(400).json({
+      action: 'BLOCK',
+      risk: 'HIGH',
+      score: 100,
+      reason: 'Input exceeds maximum length',
+      matched_patterns: ['input_too_large'],
+      requestId
+    });
+  }
+  
+  // Run deterministic scan (FAST - <50ms typically)
+  const scanResult = runHeuristicScan(prompt);
+  
+  // Map to runtime actions
+  let action = 'ALLOW';
+  if (scanResult.score >= 75) {
+    action = 'BLOCK';
+  } else if (scanResult.score >= 40) {
+    action = 'WARN';
+  }
+  
+  // Build response
+  const response = {
+    action,
+    risk: scanResult.label,
+    score: scanResult.score,
+    reason: scanResult.summary || scanResult.rationale || 'No significant findings',
+    matched_patterns: scanResult.findings?.map(f => f.type) || [],
+    context,
+    timing: {
+      deterministic_ms: Date.now() - startTime,
+      total_ms: Date.now() - startTime
+    },
+    requestId
+  };
+  
+  // Send Slack alert for BLOCK or HIGH risk
+  if (action === 'BLOCK' || scanResult.label === 'HIGH') {
+    sendSlackAlert({
+      action: response.action,
+      risk: response.risk,
+      score: response.score,
+      reason: response.reason,
+      context,
+      sample: prompt
+    }).catch(() => {}); // Fire and forget
+  }
+  
+  // Optional: Enhance with AI if available and score is borderline
+  const groqApiKey = process.env.GROQ_API_KEY;
+  if (groqApiKey && scanResult.score >= 35 && scanResult.score < 75 && !process.env.OFFLINE_MODE) {
+    // Don't await - return deterministic result immediately
+    // AI enhancement happens async for logging/analysis only
+    performScan(prompt, context, null, groqApiKey).catch(() => {});
+  }
+  
+  res.setHeader('X-RateLimit-Remaining', rateCheck.remaining);
+  res.setHeader('X-Response-Time', `${Date.now() - startTime}ms`);
+  res.json(response);
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   const requestId = res.locals?.requestId || crypto.randomUUID();
