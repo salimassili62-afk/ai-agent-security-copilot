@@ -620,7 +620,20 @@
     // Initialize Supabase
     const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQ0MH0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    window.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Landing/Scanner view switching - MUST be in global scope for onclick
+    function showScanner() {
+      document.getElementById('landingHero').classList.add('hidden');
+      document.getElementById('scannerSection').classList.add('active');
+      window.scrollTo(0, 0);
+    }
+
+    function showLanding() {
+      document.getElementById('landingHero').classList.remove('hidden');
+      document.getElementById('scannerSection').classList.remove('active');
+      window.scrollTo(0, 0);
+    }
 
     // Wait for DOM to be ready before accessing DOM elements
     document.addEventListener('DOMContentLoaded', function() {
@@ -701,9 +714,9 @@ Schema:
     // Check auth status and update UI
     async function checkAuth() {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await window.supabaseClient.auth.getSession();
         if (session) {
-          const { data: { user } } = await supabase.auth.getUser();
+          const { data: { user } } = await window.supabaseClient.auth.getUser();
           authStatus.innerHTML = `<a href="/dashboard" class="btn-ghost" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Dashboard</a> <a href="/auth/logout" class="btn-ghost" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Sign Out</a>`;
         } else {
           authStatus.innerHTML = `<a href="/auth/login" class="btn-primary" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Sign In</a>`;
@@ -1565,19 +1578,6 @@ Schema:
       updateCharMeta();
     });
     }); // Close DOMContentLoaded event listener
-
-    // Landing/Scanner view switching - MUST be in global scope for onclick
-    function showScanner() {
-      document.getElementById('landingHero').classList.add('hidden');
-      document.getElementById('scannerSection').classList.add('active');
-      window.scrollTo(0, 0);
-    }
-
-    function showLanding() {
-      document.getElementById('landingHero').classList.remove('hidden');
-      document.getElementById('scannerSection').classList.remove('active');
-      window.scrollTo(0, 0);
-    }
   </script>
 </body>
 </html>
