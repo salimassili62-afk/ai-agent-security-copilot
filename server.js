@@ -1687,7 +1687,7 @@ app.post('/api/runtime-scan', async (req, res) => {
     risk: scanResult.label,
     score: scanResult.score,
     reason: scanResult.summary || scanResult.rationale || 'No significant findings',
-    matched_patterns: scanResult.findings?.map(f => f.type) || [],
+    matched_patterns: scanResult.deterministicFindings?.map(f => f.type) || [],
     context,
     timing: {
       deterministic_ms: Date.now() - startTime,
