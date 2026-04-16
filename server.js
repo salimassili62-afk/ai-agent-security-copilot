@@ -1,6 +1,5 @@
 // Updated: 2026-04-09 - pricing and scanner fix
 require('dotenv').config();
-console.log("GROQ KEY STATUS:", process.env.GROQ_API_KEY ? "PRESENT" : "MISSING");
 const express = require("express");
 const crypto = require("crypto");
 const helmet = require("helmet");
@@ -967,6 +966,16 @@ function getOwaspTitle(id) {
   return titles[id] || id;
 }
 
+// Config endpoint - returns Supabase credentials for frontend
+app.get("/api/config", (req, res) => {
+  const requestId = res.locals?.requestId || crypto.randomUUID();
+  res.json({
+    supabaseUrl: process.env.SUPABASE_URL || null,
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || null,
+    requestId
+  });
+});
+
 // Health check with Groq status
 app.get("/api/health", async (req, res) => {
   try {
@@ -1719,27 +1728,6 @@ app.post('/api/runtime-scan', async (req, res) => {
   res.setHeader('X-RateLimit-Remaining', rateCheck.remaining);
   res.setHeader('X-Response-Time', `${Date.now() - startTime}ms`);
   res.json(response);
-});
-
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  const requestId = res.locals?.requestId || crypto.randomUUID();
-  res.json({
-    status: 'ok',
-    version: APP_VERSION,
-    timestamp: new Date().toISOString(),
-    services: {
-      groq: !!process.env.GROQ_API_KEY,
-      supabase: !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY),
-      lemonsqueezy: !!process.env.LEMONSQUEEZY_API_KEY,
-      lemonsqueezy_configured: !!(process.env.LEMONSQUEEZY_API_KEY && process.env.LEMONSQUEEZY_STORE_ID)
-    },
-    // Debug info for Groq API key
-    groq_key_present: !!process.env.GROQ_API_KEY,
-    groq_key_prefix: process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.substring(0,8) : "MISSING",
-    node_env: process.env.NODE_ENV,
-    requestId
-  });
 });
 
 // Groq health check - tests actual connectivity

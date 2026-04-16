@@ -617,10 +617,31 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script>
-    // Initialize Supabase
-    const SUPABASE_URL = 'https://rhdlbwheqangvbjwdbdb.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJoZGxid2hlcWFuZ3ZiandkYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MjI0MzksImV4cCI6MjA1NzM5ODQ0MH0.zawaDQM1cQH2NQ5BQsy5B10mKosAaREe4jXzGqJEZzw';
-    window.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Initialize Supabase client (will be set after fetching config)
+    window.supabaseClient = null;
+
+    // Fetch Supabase config from server and initialize client
+    async function initSupabase() {
+      try {
+        const res = await fetch('/api/config');
+        if (!res.ok) {
+          console.log('[Supabase] Config endpoint unavailable');
+          return false;
+        }
+        const config = await res.json();
+        if (config.supabaseUrl && config.supabaseAnonKey) {
+          window.supabaseClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+          console.log('[Supabase] Client initialized from server config');
+          return true;
+        } else {
+          console.log('[Supabase] No credentials configured - auth disabled');
+          return false;
+        }
+      } catch (e) {
+        console.log('[Supabase] Failed to fetch config:', e.message);
+        return false;
+      }
+    }
 
     // Landing/Scanner view switching - MUST be in global scope for onclick
     function showScanner() {
@@ -636,8 +657,13 @@
     }
 
     // Wait for DOM to be ready before accessing DOM elements
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', async function() {
       const APP_VERSION = "2.0.0";
+
+      // Initialize Supabase from server config, then check auth
+      await initSupabase();
+      checkAuth();
+
     const CLAUDE_MODEL = "groq-llama-3.1-8b";
     const SECURITY_SYSTEM_PROMPT = `You are an AI security analyst for teams shipping LLM products and autonomous agents.
 
@@ -713,6 +739,11 @@ Schema:
 
     // Check auth status and update UI
     async function checkAuth() {
+      // If supabase is not initialized, show sign in button (graceful degradation)
+      if (!window.supabaseClient) {
+        authStatus.innerHTML = `<a href="/auth/login" class="btn-primary" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Sign In</a>`;
+        return;
+      }
       try {
         const { data: { session } } = await window.supabaseClient.auth.getSession();
         if (session) {
@@ -725,8 +756,6 @@ Schema:
         authStatus.innerHTML = `<a href="/auth/login" class="btn-primary" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Sign In</a>`;
       }
     }
-    
-    checkAuth();
 
     // Update footer with accurate info based on scan mode
     function updateFooter(provider, fallback, heuristicOnly) {
