@@ -660,10 +660,6 @@
     document.addEventListener('DOMContentLoaded', async function() {
       const APP_VERSION = "2.0.0";
 
-      // Initialize Supabase from server config, then check auth
-      await initSupabase();
-      checkAuth();
-
     const CLAUDE_MODEL = "groq-llama-3.1-8b";
     const SECURITY_SYSTEM_PROMPT = `You are an AI security analyst for teams shipping LLM products and autonomous agents.
 
@@ -726,6 +722,11 @@ Schema:
     const closeHelpBtn = document.getElementById("closeHelpBtn");
     const buildMeta = document.getElementById("buildMeta");
     const authStatus = document.getElementById("authStatus");
+
+    // Initialize Supabase from server config, then check auth
+    // (must be after authStatus declaration to avoid ReferenceError)
+    await initSupabase();
+    checkAuth();
 
     const MAX_INPUT_CHARS = 10000;
     let lastScanBundle = null;
