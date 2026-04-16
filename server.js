@@ -1642,92 +1642,148 @@ app.post('/api/runtime-scan', async (req, res) => {
   const requestId = res.locals?.requestId || crypto.randomUUID();
   const startTime = Date.now();
   
-  // Rate limiting
-  const clientIp = getClientIp(req);
-  const rateCheck = checkRuntimeRateLimit(clientIp);
-  if (!rateCheck.allowed) {
-    return res.status(429).json({
-      action: 'BLOCK',
-      risk: 'HIGH',
-      score: 100,
-      reason: 'Rate limit exceeded',
-      matched_patterns: ['rate_limit_exceeded'],
-      requestId
-    });
-  }
-  
-  // Input validation
-  const { prompt, context = 'end-user input' } = req.body || {};
-  
-  if (!prompt || typeof prompt !== 'string') {
-    return res.status(400).json({
-      error: 'Missing or invalid prompt field',
-      requestId
-    });
-  }
-  
-  // Security: Limit input size
-  const MAX_RUNTIME_INPUT = 10000;
-  if (prompt.length > MAX_RUNTIME_INPUT) {
-    return res.status(400).json({
-      action: 'BLOCK',
-      risk: 'HIGH',
-      score: 100,
-      reason: 'Input exceeds maximum length',
-      matched_patterns: ['input_too_large'],
-      requestId
-    });
-  }
-  
-  // Run deterministic scan (FAST - <50ms typically)
-  const scanResult = runHeuristicScan(prompt);
-  
-  // Map to runtime actions
-  let action = 'ALLOW';
-  if (scanResult.score >= 75) {
-    action = 'BLOCK';
-  } else if (scanResult.score >= 40) {
-    action = 'WARN';
-  }
-  
-  // Build response
-  const response = {
-    action,
-    risk: scanResult.label,
-    score: scanResult.score,
-    reason: scanResult.summary || scanResult.rationale || 'No significant findings',
-    matched_patterns: scanResult.deterministicFindings?.map(f => f.type) || [],
-    context,
-    timing: {
-      deterministic_ms: Date.now() - startTime,
-      total_ms: Date.now() - startTime
-    },
-    requestId
-  };
-  
-  // Send Slack alert for BLOCK or HIGH risk
-  if (action === 'BLOCK' || scanResult.label === 'HIGH') {
-    sendSlackAlert({
-      action: response.action,
-      risk: response.risk,
-      score: response.score,
-      reason: response.reason,
+  try {
+    // Rate limiting
+    const clientIp = getClientIp(req);
+    const rateCheck = checkRuntimeRateLimit(clientIp);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        ok: false,
+        error: 'Rate limit exceeded',
+        what: 'Too many requests from your IP',
+        where: 'POST /api/runtime-scan',
+        why: `You have exceeded the limit of ${RUNTIME_RATE_LIMIT} requests per minute`,
+        howToFix: `Wait ${rateCheck.retryAfter || 60} seconds before retrying`,
+        retryAfter: rateCheck.retryAfter || 60,
+        requestId
+      });
+    }
+    
+    // Input validation
+    const body = req.body || {};
+    const rawPrompt = body.prompt;
+    const rawContext = body.context;
+    
+    if (rawPrompt === undefined || rawPrompt === null || typeof rawPrompt !== 'string') {
+      return res.status(400).json({
+        ok: false,
+        error: 'Missing or invalid prompt field',
+        what: 'The "prompt" field is missing or not a string',
+        where: 'POST /api/runtime-scan',
+        why: 'The "prompt" field is required and must be a non-empty string',
+        howToFix: 'Include { "prompt": "text to scan" } in your request body',
+        requestId
+      });
+    }
+    
+    // Sanitize: strip null bytes and trim whitespace
+    const prompt = rawPrompt.replace(/\x00/g, '').trim();
+    
+    if (prompt.length === 0) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Empty prompt',
+        what: 'The "prompt" field is empty or contains only whitespace',
+        where: 'POST /api/runtime-scan',
+        why: 'A non-empty prompt is required for scanning',
+        howToFix: 'Provide meaningful text in the "prompt" field',
+        requestId
+      });
+    }
+    
+    // Validate context field type
+    let context = 'end-user input';
+    if (rawContext !== undefined && rawContext !== null) {
+      if (typeof rawContext !== 'string') {
+        return res.status(400).json({
+          ok: false,
+          error: 'Invalid context field',
+          what: 'The "context" field must be a string',
+          where: 'POST /api/runtime-scan',
+          why: `Expected a string but received ${typeof rawContext}`,
+          howToFix: 'Provide a string value for "context" (e.g., "end-user input", "system prompt")',
+          requestId
+        });
+      }
+      context = rawContext.replace(/\x00/g, '').trim() || 'end-user input';
+    }
+    
+    // Security: Limit input size
+    const MAX_RUNTIME_INPUT = 10000;
+    if (prompt.length > MAX_RUNTIME_INPUT) {
+      return res.status(413).json({
+        ok: false,
+        error: 'Input too large',
+        what: `Your input is ${prompt.length.toLocaleString()} characters`,
+        where: 'POST /api/runtime-scan',
+        why: `The runtime scan endpoint accepts a maximum of ${MAX_RUNTIME_INPUT.toLocaleString()} characters`,
+        howToFix: 'Reduce input to 10,000 characters or fewer, or split into multiple requests',
+        requestId
+      });
+    }
+    
+    // Run deterministic scan (FAST - <50ms typically)
+    const scanResult = runHeuristicScan(prompt);
+    
+    // Map to runtime actions
+    let action = 'ALLOW';
+    if (scanResult.score >= 75) {
+      action = 'BLOCK';
+    } else if (scanResult.score >= 40) {
+      action = 'WARN';
+    }
+    
+    // Build response
+    const response = {
+      ok: true,
+      action,
+      risk: scanResult.label,
+      score: scanResult.score,
+      reason: scanResult.summary || scanResult.rationale || 'No significant findings',
+      matched_patterns: scanResult.deterministicFindings?.map(f => f.type) || [],
       context,
-      sample: prompt
-    }).catch(() => {}); // Fire and forget
+      timing: {
+        deterministic_ms: Date.now() - startTime,
+        total_ms: Date.now() - startTime
+      },
+      requestId
+    };
+    
+    // Send Slack alert for BLOCK or HIGH risk
+    if (action === 'BLOCK' || scanResult.label === 'HIGH') {
+      sendSlackAlert({
+        action: response.action,
+        risk: response.risk,
+        score: response.score,
+        reason: response.reason,
+        context,
+        sample: prompt
+      }).catch(() => {}); // Fire and forget
+    }
+    
+    // Optional: Enhance with AI if available and score is borderline
+    const groqApiKey = process.env.GROQ_API_KEY;
+    if (groqApiKey && scanResult.score >= 35 && scanResult.score < 75 && !process.env.OFFLINE_MODE) {
+      // Don't await - return deterministic result immediately
+      // AI enhancement happens async for logging/analysis only
+      performScan(prompt, context, null, groqApiKey).catch(() => {});
+    }
+    
+    res.setHeader('X-RateLimit-Remaining', rateCheck.remaining);
+    res.setHeader('X-Response-Time', `${Date.now() - startTime}ms`);
+    res.json(response);
+  } catch (err) {
+    log('ERROR', 'Runtime scan failed', { error: err.message, stack: err.stack, requestId });
+    res.status(500).json({
+      ok: false,
+      error: 'Internal server error',
+      what: 'The runtime scan encountered an unexpected error',
+      where: 'POST /api/runtime-scan',
+      why: 'An internal error occurred while processing the scan',
+      howToFix: 'Retry the request. If the issue persists, contact support',
+      requestId
+    });
   }
-  
-  // Optional: Enhance with AI if available and score is borderline
-  const groqApiKey = process.env.GROQ_API_KEY;
-  if (groqApiKey && scanResult.score >= 35 && scanResult.score < 75 && !process.env.OFFLINE_MODE) {
-    // Don't await - return deterministic result immediately
-    // AI enhancement happens async for logging/analysis only
-    performScan(prompt, context, null, groqApiKey).catch(() => {});
-  }
-  
-  res.setHeader('X-RateLimit-Remaining', rateCheck.remaining);
-  res.setHeader('X-Response-Time', `${Date.now() - startTime}ms`);
-  res.json(response);
 });
 
 // Groq health check - tests actual connectivity
