@@ -204,19 +204,21 @@
 
   <script src="https://js.stripe.com/v3/"></script>
   <script>
-    // Get Stripe publishable key from server or use fallback
+    // Get Stripe publishable key from server config
     let stripe;
     
-    // Initialize Stripe with the public key
-    fetch('/api/health')
+    // Initialize Stripe with the key from the server config endpoint
+    fetch('/api/config')
       .then(res => res.json())
       .then(data => {
-        // For now, use a test key - in production this should come from server config
-        stripe = Stripe('pk_test_51234567890abcdef'); // Test key - replace with actual
+        if (data.stripePublishableKey) {
+          stripe = Stripe(data.stripePublishableKey);
+        } else {
+          console.warn('[Stripe] No publishable key configured on the server. Checkout will not work.');
+        }
       })
       .catch(() => {
-        // Fallback to test key
-        stripe = Stripe('pk_test_51234567890abcdef');
+        console.warn('[Stripe] Failed to fetch config. Checkout will not work.');
       });
 
     async function showToast(message, type = 'info') {

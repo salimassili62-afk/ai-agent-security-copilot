@@ -31,12 +31,20 @@ const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 const GITHUB_REDIRECT_URI = process.env.GITHUB_REDIRECT_URI || null;
 const SESSION_COOKIE_NAME = "auth_session";
-const SESSION_SECRET =
-  process.env.SESSION_SECRET ||
-  process.env.JWT_SECRET ||
-  process.env.SUPABASE_JWT_SECRET ||
-  GITHUB_CLIENT_SECRET ||
-  "local-dev-session-secret";
+const SESSION_SECRET = (() => {
+  const secret = process.env.SESSION_SECRET ||
+    process.env.JWT_SECRET ||
+    process.env.SUPABASE_JWT_SECRET;
+  if (secret) return secret;
+  // Warn loudly when falling back to an ephemeral secret — sessions will
+  // not survive restarts and this MUST NOT be used in production.
+  const ephemeral = crypto.randomBytes(32).toString('hex');
+  console.warn(
+    '[SECURITY] No SESSION_SECRET configured — using a random ephemeral secret. ' +
+    'Sessions will not persist across restarts. Set SESSION_SECRET in your environment for production.'
+  );
+  return ephemeral;
+})();
 
 // OAuth disabled - app works without auth
 const OAUTH_ENABLED = !!(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET);
@@ -163,8 +171,23 @@ function normalizeScanRecord(scan = {}) {
 
 // Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({ 
-  origin: true, 
+app.use(cors({
+  origin: (origin, callback) => {
+    // Parse allowed origins from environment (comma-separated), fall back to same-origin only
+    const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+      ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
+      : [];
+    // Allow requests with no origin (server-to-server, curl, mobile apps)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.length === 0) {
+      // No explicit allowlist — allow same-origin only (origin must match the server host)
+      return callback(null, false);
+    }
+    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+      return callback(null, true);
+    }
+    callback(new Error('CORS: origin not allowed'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id']
@@ -966,12 +989,13 @@ function getOwaspTitle(id) {
   return titles[id] || id;
 }
 
-// Config endpoint - returns Supabase credentials for frontend
+// Config endpoint - returns public frontend config
 app.get("/api/config", (req, res) => {
   const requestId = res.locals?.requestId || crypto.randomUUID();
   res.json({
     supabaseUrl: process.env.SUPABASE_URL || null,
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || null,
+    stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY || null,
     requestId
   });
 });
@@ -997,7 +1021,6 @@ app.get("/api/health", async (req, res) => {
     res.json({ 
       ok: true, 
       version: APP_VERSION, 
-      groqStatus,
       fallbackAvailable: true,
       requestId: res.locals.requestId 
     });
@@ -1770,7 +1793,6 @@ app.get('/api/health/groq', async (req, res) => {
         what: 'Groq API is reachable',
         where: 'https://api.groq.com',
         modelsAvailable: models.data?.length || 0,
-        keyPrefix: groqApiKey.substring(0, 8) + '...',
         env_var_present: true,
         requestId
       });
@@ -2562,15 +2584,43 @@ app.get("/scanner", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "scanner.html"));
 });
 
-// Contact form endpoint
+// Contact form endpoint with input validation and rate limiting
+const contactRateBuckets = new Map();
 app.post('/api/contact', async (req, res) => {
   const requestId = res.locals.requestId;
-  
+
+  // Rate limit: max 5 submissions per 15 minutes per IP
+  const ip = getClientIp(req);
+  const now = Date.now();
+  let bucket = contactRateBuckets.get(ip);
+  if (!bucket || now > bucket.resetAt) {
+    bucket = { count: 0, resetAt: now + 900000 };
+    contactRateBuckets.set(ip, bucket);
+  }
+  bucket.count += 1;
+  if (bucket.count > 5) {
+    return res.status(429).json({ error: 'Too many submissions. Please try again later.', requestId });
+  }
+
   try {
     const { name, email, message } = req.body;
-    
-    // Log contact request (in production, you'd send email or save to database)
-    log('INFO', 'Contact form submission', { requestId, name, email });
+
+    // Validate required fields
+    if (!name || typeof name !== 'string' || name.trim().length === 0 || name.length > 200) {
+      return res.status(400).json({ error: 'Name is required (max 200 characters).', requestId });
+    }
+    if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
+      return res.status(400).json({ error: 'A valid email address is required.', requestId });
+    }
+    if (!message || typeof message !== 'string' || message.trim().length === 0 || message.length > 5000) {
+      return res.status(400).json({ error: 'Message is required (max 5000 characters).', requestId });
+    }
+
+    // Sanitize values before logging (strip control characters)
+    const safeName = name.trim().replace(/[\x00-\x1f]/g, '').slice(0, 200);
+    const safeEmail = email.trim().replace(/[\x00-\x1f]/g, '').slice(0, 320);
+
+    log('INFO', 'Contact form submission', { requestId, name: safeName, email: safeEmail });
     
     res.json({ 
       ok: true, 
