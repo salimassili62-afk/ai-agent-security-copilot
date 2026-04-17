@@ -76,6 +76,10 @@ async function run() {
       }
     }
 
+    // Calculate overall risk score (simplified from findings)
+    const riskScore = (criticalCount * 75) + (highCount * 25) + (mediumCount * 10) + (lowCount * 5);
+    const cappedScore = Math.min(100, riskScore);
+
     // Build summary
     const summary = {
       totalFiles: files.length,
@@ -85,7 +89,8 @@ async function run() {
       medium: mediumCount,
       low: lowCount,
       findings: allFindings,
-      passed: true
+      passed: true,
+      score: cappedScore
     };
 
     // Determine if scan passed
@@ -155,7 +160,7 @@ async function run() {
 
     // Post PR comment if enabled and in PR context
     if (prCommentEnabled && githubToken && github.context.payload.pull_request) {
-      await postPRComment(githubToken, summary);
+      await postPRComment(githubToken, summary, null);
     }
 
     // Final status
