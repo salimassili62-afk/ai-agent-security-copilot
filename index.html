@@ -836,7 +836,7 @@ Schema:
         const { data: { session } } = await window.supabaseClient.auth.getSession();
         if (session) {
           const { data: { user } } = await window.supabaseClient.auth.getUser();
-          authStatus.innerHTML = `<a href="/dashboard" class="btn-ghost" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Dashboard</a> <a href="/auth/logout" class="btn-ghost" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Sign Out</a>`;
+          authStatus.innerHTML = `<a href="/auth/logout" class="btn-ghost" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Sign Out</a>`;
         } else {
           authStatus.innerHTML = `<a href="/auth/login" class="btn-primary" style="text-decoration: none; padding: 6px 12px; font-size: 13px;">Sign In</a>`;
         }
