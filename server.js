@@ -169,7 +169,7 @@ app.use(helmet({
       scriptSrc: ["'self'", "https://cdn.jsdelivr.net", "'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "https://api.groq.com", "https://*.supabase.co"],
+      connectSrc: ["'self'", "https://api.groq.com", "https://*.supabase.co", "https://cdn.jsdelivr.net"],
       fontSrc: ["'self'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"]
     }
   }

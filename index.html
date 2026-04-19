@@ -970,7 +970,7 @@ Schema:
       }
     }
 
-    async function scanWithClaude(content, scanContext, compareBaseline) {
+    async function scanWithEndpoint(content, scanContext, compareBaseline) {
       const payload = {
         content,
         scanContext
@@ -1094,22 +1094,30 @@ Schema:
     }
 
     function resetTriageUi() {
-      triageHint.style.display = "block";
-      triageBox.style.display = "none";
-      triageRationale.textContent = "";
-      socNote.textContent = "";
-      owaspRow.textContent = "";
-      const owaspPlaceholder = document.createElement("span");
-      owaspPlaceholder.className = "small";
-      owaspPlaceholder.style.opacity = "0.7";
-      owaspPlaceholder.textContent = "Run a scan to see OWASP LLM Top 10 mapping. Security categories appear when patterns match.";
-      owaspRow.appendChild(owaspPlaceholder);
-      execSummary.style.display = "none";
-      execSummary.textContent = "";
-      providerLine.style.display = "none";
-      providerLine.textContent = "";
-      heuristicRow.style.display = "none";
-      heuristicRow.textContent = "";
+      if (triageHint) triageHint.style.display = "block";
+      if (triageBox) triageBox.style.display = "none";
+      if (triageRationale) triageRationale.textContent = "";
+      if (socNote) socNote.textContent = "";
+      if (owaspRow) {
+        owaspRow.textContent = "";
+        const owaspPlaceholder = document.createElement("span");
+        owaspPlaceholder.className = "small";
+        owaspPlaceholder.style.opacity = "0.7";
+        owaspPlaceholder.textContent = "Run a scan to see OWASP LLM Top 10 mapping. Security categories appear when patterns match.";
+        owaspRow.appendChild(owaspPlaceholder);
+      }
+      if (execSummary) {
+        execSummary.style.display = "none";
+        execSummary.textContent = "";
+      }
+      if (providerLine) {
+        providerLine.style.display = "none";
+        providerLine.textContent = "";
+      }
+      if (heuristicRow) {
+        heuristicRow.style.display = "none";
+        heuristicRow.textContent = "";
+      }
     }
 
     function buildMarkdownReport(bundle) {
