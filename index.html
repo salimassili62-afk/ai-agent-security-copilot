@@ -1029,6 +1029,7 @@ Schema:
     }
 
     function renderOwasp(items) {
+      if (!owaspRow) return;
       owaspRow.textContent = "";
       if (!items.length) {
         const span = document.createElement("span");
@@ -1056,22 +1057,25 @@ Schema:
     }
 
     function renderHeuristicSignals(text) {
+      if (!heuristicRow) return;
       heuristicRow.textContent = "";
       const flags = [];
       if (/(ignore|disregard).{0,40}(instruction|rule|policy)/i.test(text)) {
-        flags.push("Heuristic: instruction override phrasing");
+        flags.push("⚠️ Instruction override attempt");
       }
-      if (/(api[_-]?key|secret|token|password|BEGIN PRIVATE KEY)/i.test(text)) {
-        flags.push("Heuristic: secret/credential pattern");
+      if (/sk-[a-zA-Z0-9]{20,}/i.test(text) || /pk_[a-zA-Z0-9]{20,}/i.test(text) || /(api[_-]?key|secret|password|token)\s*[:=]\s*[a-zA-Z0-9_-]{8,}/i.test(text)) {
+        flags.push("🔐 Potential credential leak");
       }
-      if (/(exfiltrate|send (to|all) (email|slack)|paste full database)/i.test(text)) {
-        flags.push("Heuristic: exfil-style request");
+      if (/(rm\s+-rf|del\s+\/|format\s+c:|sudo\s+chmod\s+777|wget\s+http|curl\s+http|powershell\s+-c|bash\s+-c)/i.test(text)) {
+        flags.push("💥 Dangerous command execution");
       }
-      if (!flags.length) {
-        heuristicRow.style.display = "none";
-        return;
+      if (/(http|https):\/\/[^\s]{3,50}\.(bit\.ly|tinyurl|goo\.gl|t\.co)/i.test(text)) {
+        flags.push("🔗 Suspicious short URL");
       }
-      heuristicRow.style.display = "flex";
+      if (/(system\s+prompt|initial\s+instruction|base\s+instruction|developer\s+note|internal\s+guidance)/i.test(text)) {
+        flags.push("📋 System prompt reference");
+      }
+      heuristicRow.style.display = flags.length ? "flex" : "none";
       for (const f of flags) {
         const chip = document.createElement("div");
         chip.className = "chip";
@@ -1081,16 +1085,22 @@ Schema:
     }
 
     function applyTriageUi(result) {
-      triageHint.style.display = "none";
-      triageBox.style.display = "block";
-      triageActionPill.textContent = result.triage.action;
-      triageActionPill.className = `pill ${triagePillClass(result.triage.action)}`;
-      confidencePill.textContent = `CONFIDENCE ${result.confidence}`;
-      confidencePill.className = `pill ${sevPillClass(result.confidence)}`;
-      fpPill.textContent = `FP RISK ${result.false_positive_risk}`;
-      fpPill.className = `pill ${sevPillClass(result.false_positive_risk)}`;
-      triageRationale.textContent = result.triage.rationale || "No extra rationale returned.";
-      socNote.textContent = result.soc_note || "(No SOC line — copy summary instead.)";
+      if (triageHint) triageHint.style.display = "none";
+      if (triageBox) triageBox.style.display = "block";
+      if (triageActionPill) {
+        triageActionPill.textContent = result.triage.action;
+        triageActionPill.className = `pill ${triagePillClass(result.triage.action)}`;
+      }
+      if (confidencePill) {
+        confidencePill.textContent = `CONFIDENCE ${result.confidence}`;
+        confidencePill.className = `pill ${sevPillClass(result.confidence)}`;
+      }
+      if (fpPill) {
+        fpPill.textContent = `FP RISK ${result.false_positive_risk}`;
+        fpPill.className = `pill ${sevPillClass(result.false_positive_risk)}`;
+      }
+      if (triageRationale) triageRationale.textContent = result.triage.rationale || "No extra rationale returned.";
+      if (socNote) socNote.textContent = result.soc_note || "(No SOC line — copy summary instead.)";
     }
 
     function resetTriageUi() {
@@ -1186,10 +1196,12 @@ Schema:
     }
 
     function showToast(msg) {
-      toastEl.textContent = msg;
-      toastEl.classList.add("show");
-      if (toastTimer) clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2200);
+      if (toastEl) {
+        toastEl.textContent = msg;
+        toastEl.classList.add("show");
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2200);
+      }
     }
 
     async function copyText(text) {
@@ -1202,6 +1214,7 @@ Schema:
     }
 
     function renderList(el, items, emptyText) {
+      if (!el) return;
       el.innerHTML = "";
       if (!items.length) {
         const li = document.createElement("li");
@@ -1250,6 +1263,7 @@ Schema:
       } catch (_) {
         list = [];
       }
+      if (!historyEl) return;
       historyEl.textContent = "";
       if (!list.length) {
         const p = document.createElement("p");
@@ -1319,8 +1333,10 @@ Schema:
 
     function updateCharMeta() {
       const n = inputText.value.length;
-      charMeta.textContent = `${n.toLocaleString()} characters · max ${MAX_INPUT_CHARS.toLocaleString()} (server may cap)`;
-      charMeta.style.color = n > MAX_INPUT_CHARS ? "var(--danger)" : "var(--muted)";
+      if (charMeta) {
+        charMeta.textContent = `${n.toLocaleString()} characters · max ${MAX_INPUT_CHARS.toLocaleString()} (server may cap)`;
+        charMeta.style.color = n > MAX_INPUT_CHARS ? "var(--danger)" : "var(--muted)";
+      }
     }
 
     inputText.addEventListener("input", updateCharMeta);
@@ -1362,30 +1378,30 @@ Schema:
       const raw = inputText.value;
       const content = raw.trim();
       if (!content) {
-        scoreReason.textContent = "Please paste some content to scan first.";
+        if (scoreReason) scoreReason.textContent = "Please paste some content to scan first.";
         return;
       }
       if (content.length > MAX_INPUT_CHARS) {
-        scoreReason.textContent = `Paste is too long (${content.length} chars). Trim below ${MAX_INPUT_CHARS} or split into chunks.`;
+        if (scoreReason) scoreReason.textContent = `Paste is too long (${content.length} chars). Trim below ${MAX_INPUT_CHARS} or split into chunks.`;
         return;
       }
-      
+
       // Basic input validation - sanitize dangerous patterns
       const dangerousPatterns = [/<script[^>]*>/i, /javascript:/i, /on\w+\s*=/i];
       for (const pattern of dangerousPatterns) {
         if (pattern.test(content)) {
-          scoreReason.textContent = "Input contains potentially dangerous patterns. Please sanitize before scanning.";
+          if (scoreReason) scoreReason.textContent = "Input contains potentially dangerous patterns. Please sanitize before scanning.";
           return;
         }
       }
-      
+
       isScanning = true;
       lastScanTime = now;
       const scanContext = scanContextEl.value;
 
       setScanLoading(true);
       scanStartTime = Date.now();
-      scoreReason.textContent = "Analyzing with Groq AI... (usually 2-5 seconds)";
+      if (scoreReason) scoreReason.textContent = "Analyzing with Groq AI... (usually 2-5 seconds)";
       renderHeuristicSignals(content);
 
       try {
@@ -1401,50 +1417,61 @@ Schema:
         fallback = scanResult.fallback || false;
         heuristicOnly = scanResult.heuristicOnly || false;
         lastRegressionDiff = null;
-        
+
         const scoreLabel = getRiskLabel(result.score);
         const labelToRender = result.label === "HIGH" ? { text: "HIGH RISK", cls: "risk-high" }
           : result.label === "MEDIUM" ? { text: "MEDIUM RISK", cls: "risk-med" }
           : result.label === "LOW" ? { text: "LOW RISK", cls: "risk-low" }
           : scoreLabel;
 
-        riskScore.textContent = String(result.score);
-        riskBadge.className = `pill ${labelToRender.cls}`;
-        riskBadge.textContent = labelToRender.text;
-        scoreReason.textContent = result.score >= 75
-          ? "⚠️ High-risk content detected. Block and review before proceeding."
-          : result.score >= 40
-            ? "⚡ Medium risk: Review recommended. Check findings before deployment."
-            : "✅ Low risk: No significant security patterns detected. Standard precautions apply.";
+        if (riskScore) riskScore.textContent = String(result.score);
+        if (riskBadge) {
+          riskBadge.className = `pill ${labelToRender.cls}`;
+          riskBadge.textContent = labelToRender.text;
+        }
+        if (scoreReason) {
+          scoreReason.textContent = result.score >= 75
+            ? "⚠️ High-risk content detected. Block and review before proceeding."
+            : result.score >= 40
+              ? "⚡ Medium risk: Review recommended. Check findings before deployment."
+              : "✅ Low risk: No significant security patterns detected. Standard precautions apply.";
+        }
         const provLabel = provider === "heuristic" ? "Security Rules" : provider === "groq+heuristic" ? "AI + Security Rules" : provider === "groq" ? "AI Analysis" : provider;
         const scanDuration = ((Date.now() - scanStartTime) / 1000).toFixed(1);
-        providerLine.style.display = "block";
-        const rid = requestId ? ` · ${requestId.slice(0, 8)}` : "";
-        const modeNote = fallback ? " · AI fallback" : heuristicOnly ? " · Rules-only mode" : "";
-        providerLine.textContent = `${provLabel}${model ? ` · ${model}` : ""}${rid} · ${scanDuration}s${modeNote} · v${version}`;
-        
-        // Visual indicator for fallback/heuristic mode - subtle, not alarming
-        if (fallback || heuristicOnly) {
-          riskBadge.style.border = "2px dashed var(--warn)";
-          // Only add note if not already in the score reason
-          if (!scoreReason.textContent.includes("AI unavailable")) {
-            scoreReason.textContent += " (Deterministic security rules applied)";
-          }
-        } else {
-          riskBadge.style.border = "";
+        if (providerLine) {
+          providerLine.style.display = "block";
+          const rid = requestId ? ` · ${requestId.slice(0, 8)}` : "";
+          const modeNote = fallback ? " · AI fallback" : heuristicOnly ? " · Rules-only mode" : "";
+          providerLine.textContent = `${provLabel}${model ? ` · ${model}` : ""}${rid} · ${scanDuration}s${modeNote} · v${version}`;
         }
-        
+
+        // Visual indicator for fallback/heuristic mode - subtle, not alarming
+        if (riskBadge) {
+          if (fallback || heuristicOnly) {
+            riskBadge.style.border = "2px dashed var(--warn)";
+            // Only add note if not already in the score reason
+            if (scoreReason && !scoreReason.textContent.includes("AI unavailable")) {
+              scoreReason.textContent += " (Deterministic security rules applied)";
+            }
+          } else {
+            riskBadge.style.border = "";
+          }
+        }
+
         // Update footer with accurate mode info
         updateFooter(provider, fallback, heuristicOnly);
-        
+
         // Show share button after successful scan
-        document.getElementById("shareBtn").style.display = 'inline-block';
-        if (result.summary) {
-          execSummary.style.display = "block";
-          execSummary.textContent = result.summary;
-        } else {
-          execSummary.style.display = "none";
-          execSummary.textContent = "";
+        const shareBtn = document.getElementById("shareBtn");
+        if (shareBtn) shareBtn.style.display = 'inline-block';
+        if (execSummary) {
+          if (result.summary) {
+            execSummary.style.display = "block";
+            execSummary.textContent = result.summary;
+          } else {
+            execSummary.style.display = "none";
+            execSummary.textContent = "";
+          }
         }
         renderList(reasonsList, result.reasons, "No obvious risk signatures found.");
         renderList(fixesList, result.fixes, "No fix suggestions.");
@@ -1487,23 +1514,29 @@ Schema:
         } else if (message.includes("network") || message.includes("fetch") || message.includes("Failed")) {
           userMessage = "Scan failed — check your connection and try again.";
         }
-        
-        riskBadge.className = "pill risk-med";
-        riskBadge.textContent = "SCAN ERROR";
-        
+
+        if (riskBadge) {
+          riskBadge.className = "pill risk-med";
+          riskBadge.textContent = "SCAN ERROR";
+        }
+
         // Show rate limit banner with upgrade link
-        if (isRateLimit) {
-          scoreReason.innerHTML = `<span style="color: var(--danger);">⚠️ ${userMessage}</span> <a href="mailto:contact@aisecuritycopilot.com" style="color: var(--primary); text-decoration: underline;">Contact us →</a>`;
-        } else {
-          scoreReason.textContent = `Scan failed (${scanDuration}s): ${userMessage}`;
+        if (scoreReason) {
+          if (isRateLimit) {
+            scoreReason.innerHTML = `<span style="color: var(--danger);">⚠️ ${userMessage}</span> <a href="mailto:contact@aisecuritycopilot.com" style="color: var(--primary); text-decoration: underline;">Contact us →</a>`;
+          } else {
+            scoreReason.textContent = `Scan failed (${scanDuration}s): ${userMessage}`;
+          }
         }
         resetTriageUi();
         renderHeuristicSignals(content);
-        owaspRow.textContent = "";
-        const sp = document.createElement("span");
-        sp.className = "small";
-        sp.textContent = "—";
-        owaspRow.appendChild(sp);
+        if (owaspRow) {
+          owaspRow.textContent = "";
+          const sp = document.createElement("span");
+          sp.className = "small";
+          sp.textContent = "—";
+          owaspRow.appendChild(sp);
+        }
         lastScanBundle = null;
         renderList(reasonsList, ["Unable to complete analysis (backend or model error)."], "No scan results.");
         renderList(fixesList, [
@@ -1548,10 +1581,12 @@ Schema:
       renderList(reasonsList, [], "No scan yet.");
       renderList(fixesList, [], "No scan yet.");
       renderList(redTeamList, [], "No scan yet.");
-      riskScore.textContent = "0";
-      riskBadge.className = "pill risk-low";
-      riskBadge.textContent = "LOW RISK";
-      scoreReason.textContent = "No scan yet.";
+      if (riskScore) riskScore.textContent = "0";
+      if (riskBadge) {
+        riskBadge.className = "pill risk-low";
+        riskBadge.textContent = "LOW RISK";
+      }
+      if (scoreReason) scoreReason.textContent = "No scan yet.";
       resetTriageUi();
       lastScanBundle = null;
     });
