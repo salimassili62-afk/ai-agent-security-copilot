@@ -1,6 +1,6 @@
 {
   "name": "ai-security-copilot-action",
-  "version": "2.0.0",
+  "version": "2.3.0",
   "description": "GitHub Action for AI Security Copilot - LLM Security Scanning",
   "main": "index.js",
   "scripts": {

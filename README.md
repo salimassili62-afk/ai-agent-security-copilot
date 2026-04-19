@@ -1,10 +1,10 @@
 # AI Security Copilot
 
-**[🔗 Live Demo](https://ai-agent-security-copilot.vercel.app)** | **[Pricing](pricing.html)** | **[Dashboard](/dashboard)**
+**[🔗 Live Demo](https://ai-agent-security-copilot.vercel.app)** | **[Dashboard](/dashboard)** | **[GitHub](https://github.com/salimassili62-afk/ai-agent-security-copilot)**
 
-**Continuous security regression testing for AI applications.**
+**Security scanning for AI applications.**
 
-Stop wondering "did this change make my prompt less safe?" Get a clear answer in 2 seconds.
+Stop wondering "is this prompt safe?" Get a clear answer in 2 seconds.
 
 ![AI Security Copilot Demo](screenshots/demo-scan.png)
 
@@ -23,15 +23,13 @@ Every change is a potential security regression:
 
 | Feature | What It Does |
 |---------|-------------|
-| **🔄 Regression Testing** | Compare baseline vs candidate. Get score delta, new findings, resolved findings, and verdict (SAFER/RISKIER/UNCHANGED) |
-| **🔍 Deterministic Detection** | 150+ patterns catch obvious issues even without AI (prompt injection, secrets, dangerous commands, exfiltration) |
+| ** Deterministic Detection** | 150+ patterns catch obvious issues even without AI (prompt injection, secrets, dangerous commands, exfiltration) |
 | **🤖 AI Enhancement** | Groq AI provides nuanced analysis and OWASP mapping when available |
 | **🛡️ Never Fails Silent** | If AI is down, deterministic rules still catch critical issues |
 | **⚡ 2-Second Results** | Fast enough to run on every commit |
-| **💰 Free Tier** | Deterministic scanning works without any API key or signup |
-| **🔐 GitHub OAuth** | Sign in with GitHub, persist scan history |
-| **💳 Stripe Payments** | Upgrade to Pro for unlimited scans and API access |
-| **📊 Dashboard** | View scan history, manage API keys, track usage |
+| **💰 Free** | Open source, no API key or signup required |
+| **🔐 GitHub OAuth** | Sign in with GitHub, persist scan history (optional) |
+| **📊 Dashboard** | View scan history and analytics (optional) |
 
 ## Quick Start
 
@@ -41,7 +39,7 @@ Visit [ai-agent-security-copilot.vercel.app](https://ai-agent-security-copilot.v
 
 ### 2. GitHub Action (CI/CD)
 
-Add this workflow to catch regressions on every PR:
+Add this workflow to scan every PR:
 
 ```yaml
 name: Security Check
@@ -55,11 +53,10 @@ jobs:
       - uses: salimassili62-afk/ai-agent-security-copilot@main
         with:
           path: './prompts/system.txt'
-          compare-baseline: './prompts/system-baseline.txt'
-          fail-on: 'medium'
+          fail-on: 'HIGH'
 ```
 
-The action will comment on PRs if security risk increased.
+The action will comment on PRs if security risk is HIGH or above.
 
 ### 3. CLI (Local Dev)
 
@@ -71,9 +68,6 @@ npm install
 
 # Scan single file
 node bin/cli.js prompt.txt
-
-# Regression test
-node bin/cli.js --compare baseline.txt new-version.txt
 
 # JSON output for automation
 node bin/cli.js prompt.txt -o json
@@ -99,23 +93,12 @@ npm start
 3. Add environment variables in Vercel dashboard:
    - `GROQ_API_KEY` (optional, for AI enhancement)
    - `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` (for auth/history)
-   - `SUPABASE_JWT_SECRET` (for auth validation)
-   - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` (for payments)
-   - `STRIPE_PRICE_PRO` and `STRIPE_PRICE_TEAM` (price IDs)
+   - `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` (for GitHub OAuth)
+   - `SESSION_SECRET` (for session encryption)
 4. Deploy
 
 Works in **deterministic-only mode** without any API key.
-For full features (auth, payments), connect Supabase and Stripe.
-
-## Pricing
-
-| Plan | Price | Features |
-|------|-------|----------|
-| **Starter** | Free | 60 scans/15min, 150+ patterns, GitHub OAuth |
-| **Professional** | $19/mo | Unlimited scans, AI + patterns, API keys, 90-day history |
-| **Enterprise** | $99/mo | Team workspace (25 seats), SSO, dedicated SLA |
-
-[View full pricing →](pricing.html)
+For auth and history features, connect Supabase and GitHub OAuth.
 
 ## API Usage
 
@@ -129,20 +112,6 @@ curl -X POST https://ai-agent-security-copilot.vercel.app/api/scans \
     "scanContext": "End-user prompt only"
   }'
 ```
-
-### Authenticated API (Pro/Enterprise)
-
-```bash
-curl -X POST https://ai-agent-security-copilot.vercel.app/api/scans \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: sk_live_your_api_key" \
-  -d '{
-    "content": "Your prompt here",
-    "scanContext": "End-user prompt"
-  }'
-```
-
-Generate API keys in your [Dashboard](/dashboard).
 
 Response:
 ```json
@@ -158,29 +127,6 @@ Response:
     "soc_note": "User attempted prompt injection - block and log"
   }
 }
-```
-
-## Regression Test Output
-
-When comparing two versions:
-
-```
-📊 REGRESSION TEST RESULTS
-
-Verdict: ⚠️ RISKIER
-
-Baseline:   35/100 (MEDIUM) - ALLOW
-Candidate:  75/100 (HIGH)   - BLOCK
-Risk Delta: +40 points
-
-⚠️ New Findings Introduced:
-  • [CRITICAL] Instruction override
-  • [HIGH] API key leak
-
-✅ Findings Resolved:
-  • [MEDIUM] Shortened URL
-
-🔄 Triage Change: ALLOW → BLOCK
 ```
 
 ## Evaluation & Benchmarks
@@ -269,15 +215,13 @@ GROQ_API_KEY=your_key npm test
 
 **Test Coverage:**
 - Health endpoint
-- Scan endpoint (single and compare mode)
+- Scan endpoint
 - Prompt injection detection (150+ patterns)
 - Secret pattern detection
 - Fallback mode (AI unavailable)
 - Rate limiting (60/15min for free tier)
 - GitHub OAuth login flow
-- Stripe checkout and webhooks
 - Dashboard data endpoint
-- API key generation and validation
 - Error handling (400/401/429/500)
 
 ## Project Status
@@ -286,12 +230,11 @@ GROQ_API_KEY=your_key npm test
 |-------|--------|-------------|
 | Phase 1 | ✅ Complete | 150+ security patterns, 100% eval pass |
 | Phase 2 | ✅ Complete | GitHub Action with PR comments |
-| Phase 3 | ✅ Complete | Landing page + pricing |
-| Phase 4 | ✅ Complete | Supabase auth + Stripe payments |
+| Phase 3 | ✅ Complete | Landing page |
+| Phase 4 | ✅ Complete | Supabase auth + GitHub OAuth |
 | Phase 5 | ✅ Complete | Dashboard with scan history |
-| Phase 6 | ✅ Complete | API key tier system |
-| Phase 7 | ✅ Complete | GitHub Action Marketplace ready |
-| Phase 8 | 🔄 In Progress | Error handling + polish |
+| Phase 6 | ✅ Complete | GitHub Action Marketplace ready |
+| Phase 7 | ✅ Complete | Production-ready build (v2.3.0) | |
 
 ## Contributing
 
