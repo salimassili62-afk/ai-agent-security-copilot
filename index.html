@@ -394,7 +394,7 @@
     <div style="background: #0d1528; border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; max-width: 640px; width: 100%; margin: 0 auto 24px; text-align: left;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
         <span style="color: var(--muted); font-size: 13px;">.github/workflows/security.yml</span>
-        <button onclick="copyInstallSnippet()" style="background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 12px; font-size: 12px; border-radius: 6px; cursor: pointer;">Copy</button>
+        <button id="copyInstallBtn" style="background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 12px; font-size: 12px; border-radius: 6px; cursor: pointer;">Copy</button>
       </div>
       <pre style="margin: 0; color: var(--text); font-size: 13px; line-height: 1.6; overflow-x: auto;"><code style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">- uses: salimassili62-afk/ai-agent-security-copilot@main
   with:
@@ -405,7 +405,7 @@
     
     <div class="hero-cta">
       <a href="https://github.com/salimassili62-afk/ai-agent-security-copilot" class="btn-primary btn-large" style="text-decoration: none; display: inline-flex; align-items: center;">Add to GitHub →</a>
-      <button class="btn-ghost btn-large" onclick="showScanner()">Try Scanner</button>
+      <button id="tryScannerBtn" class="btn-ghost btn-large">Try Scanner</button>
     </div>
     
     <!-- Quick Install: 4 steps -->
@@ -471,7 +471,7 @@
   <!-- Scanner Section -->
   <div class="scanner-section" id="scannerSection">
     <div class="wrap">
-      <a href="#" class="back-to-landing" onclick="showLanding(); return false;">← Back to landing page</a>
+      <a href="#" id="backToLanding" class="back-to-landing">← Back to landing page</a>
       <div class="auth-bar">
         <span id="authStatus"></span>
         <span style="color: var(--muted); font-size: 13px;">·</span>
@@ -812,6 +812,25 @@ Schema:
     helpOverlay.addEventListener("click", (e) => {
       if (e.target === helpOverlay) closeHelp();
     });
+
+    // Add event listeners for buttons that previously had inline onclick handlers
+    const copyInstallBtn = document.getElementById("copyInstallBtn");
+    if (copyInstallBtn) {
+      copyInstallBtn.addEventListener("click", copyInstallSnippet);
+    }
+
+    const tryScannerBtn = document.getElementById("tryScannerBtn");
+    if (tryScannerBtn) {
+      tryScannerBtn.addEventListener("click", showScanner);
+    }
+
+    const backToLanding = document.getElementById("backToLanding");
+    if (backToLanding) {
+      backToLanding.addEventListener("click", (e) => {
+        e.preventDefault();
+        showLanding();
+      });
+    }
 
     function getRiskLabel(score) {
       // Coherent with backend: >= 75 = HIGH (BLOCK), >= 40 = MEDIUM (REVIEW), < 40 = LOW (ALLOW)
@@ -1247,40 +1266,48 @@ Schema:
       });
     }
 
-    copySocBtn.addEventListener("click", () => {
-      if (!lastScanBundle) return;
-      copyText(lastScanBundle.result.soc_note || lastScanBundle.result.summary || "");
-    });
+    if (copySocBtn) {
+      copySocBtn.addEventListener("click", () => {
+        if (!lastScanBundle) return;
+        copyText(lastScanBundle.result.soc_note || lastScanBundle.result.summary || "");
+      });
+    }
 
-    copySummaryBtn.addEventListener("click", () => {
-      if (!lastScanBundle) return;
-      copyText(lastScanBundle.result.summary || "");
-    });
+    if (copySummaryBtn) {
+      copySummaryBtn.addEventListener("click", () => {
+        if (!lastScanBundle) return;
+        copyText(lastScanBundle.result.summary || "");
+      });
+    }
 
-    exportMdBtn.addEventListener("click", () => {
-      if (!lastScanBundle) return;
-      const md = buildMarkdownReport(lastScanBundle);
-      const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `security-copilot-scan-${Date.now()}.md`;
-      a.click();
-      URL.revokeObjectURL(url);
-    });
+    if (exportMdBtn) {
+      exportMdBtn.addEventListener("click", () => {
+        if (!lastScanBundle) return;
+        const md = buildMarkdownReport(lastScanBundle);
+        const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `security-copilot-scan-${Date.now()}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
 
-    exportJsonBtn.addEventListener("click", () => {
-      if (!lastScanBundle) return;
-      const json = buildJsonExport(lastScanBundle);
-      const blob = new Blob([json], { type: "application/json;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `security-copilot-scan-${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast("Exported JSON");
-    });
+    if (exportJsonBtn) {
+      exportJsonBtn.addEventListener("click", () => {
+        if (!lastScanBundle) return;
+        const json = buildJsonExport(lastScanBundle);
+        const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `security-copilot-scan-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast("Exported JSON");
+      });
+    }
 
     function updateCharMeta() {
       const n = inputText.value.length;
